@@ -126,8 +126,14 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
 
     cap = cv2.VideoCapture(video)
     if not cap.isOpened():
-        sys.exit("Could not open video: %s" % video)
-    native_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        raise RuntimeError("Could not open video: %s" % video)
+    raw_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    # Phone VFR recordings sometimes report nonsense (e.g. 1000.0 or 90000.0)
+    # in container metadata. Clamp so step/eff_fps stay sane.
+    native_fps = max(5.0, min(raw_fps, 120.0))
+    if abs(native_fps - raw_fps) > 0.01:
+        print("Warning: source reports %.2f fps, clamped to %.2f"
+              % (raw_fps, native_fps))
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -189,7 +195,8 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         bg_idx = N // 2
     print("analyzed %d frames in %.0fs" % (N, time.time() - t0))
     if N < 2:
-        sys.exit("Not enough frames analyzed.")
+        raise RuntimeError("Not enough frames analyzed. Try a longer or "
+                           "more readable video.")
 
     # ---- assign detections to a stable left / right track ------------------
     rec = {"left": [None] * N, "right": [None] * N}
@@ -469,7 +476,8 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         _video(base, video, rec, series, start_f, step, eff_fps, W, H,
                preview_seconds)
 
-    print(json.dumps(summary, indent=2))
+    # JSON dump is printed only by the CLI (see __main__); the GUI doesn't
+    # need it on stdout and the file is already on disk at <base>_metrics.json.
     return summary
 
 
@@ -681,9 +689,11 @@ if __name__ == "__main__":
                     choices=["Easy", "Medium", "Hard", "Expert"],
                     help="self-rated difficulty (shown on the report)")
     a = ap.parse_args()
-    analyze(a.video, a.start, a.duration, a.fps, a.move_threshold,
-            a.finger_threshold, a.grip_threshold, _parse_board(a.board),
-            a.segment_seconds, a.preview_seconds, a.swap_hands,
-            not a.no_video, a.outdir,
-            puzzle_name=a.puzzle_name, num_pieces=a.pieces,
-            difficulty=a.difficulty)
+    summary = analyze(a.video, a.start, a.duration, a.fps, a.move_threshold,
+                      a.finger_threshold, a.grip_threshold,
+                      _parse_board(a.board),
+                      a.segment_seconds, a.preview_seconds, a.swap_hands,
+                      not a.no_video, a.outdir,
+                      puzzle_name=a.puzzle_name, num_pieces=a.pieces,
+                      difficulty=a.difficulty)
+    print(json.dumps(summary, indent=2))

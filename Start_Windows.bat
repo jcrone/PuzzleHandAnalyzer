@@ -39,7 +39,9 @@ call .venv\Scripts\activate.bat
 
 echo Checking dependencies (the first run takes a few minutes)...
 python -m pip install --quiet --upgrade pip
-python -m pip install --quiet -r requirements.txt
+REM Don't quiet this one - mediapipe is ~100 MB; without progress output the
+REM install looks like a hang and people force-close the launcher.
+python -m pip install -r requirements.txt
 if errorlevel 1 (
     echo.
     echo Dependency installation failed. See the messages above.

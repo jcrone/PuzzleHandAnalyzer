@@ -41,7 +41,9 @@ fi
 source .venv/bin/activate
 echo "Checking dependencies (first run takes a few minutes)..."
 pip install --quiet --upgrade pip
-pip install --quiet -r requirements.txt || {
+# Don't quiet this one - mediapipe is ~100 MB; without progress output the
+# install looks like a hang and people force-close the launcher.
+pip install -r requirements.txt || {
     echo "Dependency installation failed. See the messages above."
     read -p "Press Enter to close..." _
     exit 1

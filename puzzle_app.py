@@ -92,18 +92,19 @@ def open_folder(path):
 
 
 class QueueWriter:
-    """Forwards analyzer print() output into the GUI log (drops the JSON)."""
+    """Forwards analyzer print() output into the GUI log, one line per put.
+
+    Per-line rather than per-write so that multi-line output in a single
+    write() call still appears as separate log entries, and so we don't
+    accumulate sticky state between writes.
+    """
     def __init__(self, q):
         self.q = q
-        self.in_json = False
 
     def write(self, s):
-        if not s.strip():
-            return
-        if s.strip().startswith("{"):
-            self.in_json = True
-        if not self.in_json:
-            self.q.put(s.rstrip())
+        for line in s.splitlines():
+            if line.strip():
+                self.q.put(line.rstrip())
 
     def flush(self):
         pass
