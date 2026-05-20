@@ -1,0 +1,11 @@
+# Puzzle Hand Analyzer - Python dependencies.
+# The launcher scripts (Start_Windows.bat / Start_Mac.command / Start_Linux.sh)
+# install these into a local .venv on first run.
+#
+# Python 3.10-3.12 is recommended. Python 3.8/3.9 also works; pip will
+# pick the latest compatible mediapipe wheel for the running interpreter.
+
+mediapipe>=0.10.9
+opencv-python-headless>=4.5
+numpy>=1.21
+matplotlib>=3.5
