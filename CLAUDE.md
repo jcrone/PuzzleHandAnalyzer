@@ -30,12 +30,22 @@ GitHub: https://github.com/jcrone/PuzzleHandAnalyzer (public)
 
 ---
 
-## RELEASE WORKFLOW — run after every push to `main`
+## Pushing and releasing — confirm first
 
-When the user pushes user-visible changes to `main`, follow this procedure
-to cut a new release. The end goal: the `Latest` release at
-`https://github.com/jcrone/PuzzleHandAnalyzer/releases/latest` always
-points at a `PuzzleAnalyzer.zip` containing the just-pushed code.
+**Never `git push` without confirming with the user first.** Local commits
+are fine to make as work progresses, but anything that touches the remote
+repo waits for an explicit go-ahead.
+
+**Never bump a release version or run `gh release create` without an
+explicit instruction from the user** (e.g. "cut v0.2.0", "release this").
+"I'm done with this feature" is not a release instruction.
+
+## RELEASE WORKFLOW — when the user requests a release
+
+When the user explicitly asks for a release, follow this procedure. The
+end goal: the `Latest` release at
+`https://github.com/jcrone/PuzzleHandAnalyzer/releases/latest` points at a
+`PuzzleAnalyzer.zip` containing the current code.
 
 ### Step 1 — pick the next version
 
