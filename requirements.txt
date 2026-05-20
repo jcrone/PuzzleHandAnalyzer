@@ -9,3 +9,4 @@ mediapipe>=0.10.21
 opencv-python-headless>=4.5
 numpy>=1.21
 matplotlib>=3.5
+sv-ttk>=2.6

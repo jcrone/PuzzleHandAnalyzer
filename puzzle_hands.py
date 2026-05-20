@@ -241,7 +241,14 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
                 if x["hand"] in cands:
                     side = x["hand"]
                 else:
-                    side = min(cands, key=lambda s: dist(x["c"], last[s]))
+                    # Only tie-break by distance for sides we've actually seen;
+                    # if neither has a known last position, take the first cand.
+                    with_last = [s for s in cands if last[s] is not None]
+                    if with_last:
+                        side = min(with_last,
+                                   key=lambda s: dist(x["c"], last[s]))
+                    else:
+                        side = cands[0]
                 chosen[side] = x
         for side, x in chosen.items():
             rec[side][i] = x

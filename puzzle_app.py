@@ -17,7 +17,15 @@ import traceback
 import subprocess
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import ttk, filedialog, messagebox, scrolledtext
+
+# Optional modern theme. If not installed, the app still runs with stock ttk -
+# which is already a visual upgrade over plain tk on Windows.
+try:
+    import sv_ttk
+    _HAS_SV_TTK = True
+except ImportError:
+    _HAS_SV_TTK = False
 
 try:
     import cv2
@@ -31,6 +39,15 @@ except Exception as exc:  # pragma: no cover
 PREVIEW_W = 420
 HANDLE_R = 9            # corner-handle grab radius
 MIN_BOX = 12            # ignore boxes smaller than this (likely an accident)
+
+# Theme-aware colors used for the canvas/log widgets (which aren't ttk and so
+# don't pick up the sv_ttk palette automatically).
+_DARK_BG   = "#1c1c1c"
+_DARK_FG   = "#e8e8e8"
+_LIGHT_BG  = "#ffffff"
+_LIGHT_FG  = "#1a1a1a"
+_HINT_FG_DARK  = "#9a9a9a"
+_HINT_FG_LIGHT = "#666666"
 
 PREVIEW_CHOICES = ("First 2 minutes", "First 5 minutes",
                    "First 10 minutes", "Full video", "Don't create")
@@ -114,19 +131,24 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("Puzzle Hand Analyzer")
-        root.geometry("520x720")
-        root.minsize(480, 420)
+        root.geometry("560x780")
+        root.minsize(500, 460)
+
+        self.theme = "dark"      # current sv_ttk theme; toggleable
+        self._configure_styles()
 
         # scrollable container so the window can be smaller than the contents
+        canvas_bg = self._chrome_bg()
         self.scroll_canvas = tk.Canvas(root, borderwidth=0,
-                                       highlightthickness=0)
-        self.scrollbar = tk.Scrollbar(root, orient="vertical",
-                                      command=self.scroll_canvas.yview)
+                                       highlightthickness=0,
+                                       bg=canvas_bg)
+        self.scrollbar = ttk.Scrollbar(root, orient="vertical",
+                                       command=self.scroll_canvas.yview)
         self.scroll_canvas.configure(yscrollcommand=self.scrollbar.set)
         self.scrollbar.pack(side="right", fill="y")
         self.scroll_canvas.pack(side="left", fill="both", expand=True)
 
-        self.inner = tk.Frame(self.scroll_canvas)
+        self.inner = ttk.Frame(self.scroll_canvas, padding=(4, 4))
         self._win_id = self.scroll_canvas.create_window(
             (0, 0), window=self.inner, anchor="nw")
 
@@ -161,93 +183,158 @@ class App:
         self.dragged = False
         self.q = queue.Queue()
 
-        pad = {"padx": 12, "pady": 4}
-        tk.Label(self.inner, text="Puzzle Hand Analyzer",
-                 font=("Helvetica", 16, "bold")).pack(**pad)
+        pad = {"padx": 14, "pady": 5}
 
-        tk.Label(self.inner, text="1.  Choose a puzzle video",
-                 font=("Helvetica", 11, "bold"), anchor="w").pack(
-                     fill="x", **pad)
-        self.btn_video = tk.Button(self.inner, text="Choose video file...",
-                                   command=self.choose_video)
+        # title row with a theme toggle
+        title_row = ttk.Frame(self.inner)
+        title_row.pack(fill="x", **pad)
+        ttk.Label(title_row, text="Puzzle Hand Analyzer",
+                  style="Title.TLabel").pack(side="left")
+        self.btn_theme = ttk.Button(title_row, text="☀  Light",
+                                    width=10, command=self._toggle_theme)
+        self.btn_theme.pack(side="right")
+
+        ttk.Label(self.inner, text="1.  Choose a puzzle video",
+                  style="Step.TLabel").pack(fill="x", **pad)
+        self.btn_video = ttk.Button(self.inner, text="Choose video file...",
+                                    command=self.choose_video)
         self.btn_video.pack(**pad)
-        self.lbl_file = tk.Label(self.inner, text="(no video selected)", fg="gray")
+        self.lbl_file = ttk.Label(self.inner, text="(no video selected)",
+                                  style="Hint.TLabel")
         self.lbl_file.pack(**pad)
 
-        tk.Label(self.inner, text="2.  (Optional) Mark the puzzle board",
-                 font=("Helvetica", 11, "bold"), anchor="w").pack(
-                     fill="x", **pad)
-        tk.Label(self.inner, text="Click and drag to draw a box around the puzzle "
-                 "board.\nDrag a corner to resize, drag the middle to move. "
-                 "Skip if unsure.",
-                 fg="gray", justify="left").pack(**pad)
+        ttk.Label(self.inner, text="2.  (Optional) Mark the puzzle board",
+                  style="Step.TLabel").pack(fill="x", **pad)
+        ttk.Label(self.inner,
+                  text="Click and drag to draw a box around the puzzle "
+                       "board.\nDrag a corner to resize, drag the middle "
+                       "to move. Skip if unsure.",
+                  style="Hint.TLabel", justify="left").pack(**pad)
         self.canvas = tk.Canvas(self.inner, width=PREVIEW_W, height=200,
                                 bg="#222", highlightthickness=1,
-                                highlightbackground="#999", cursor="crosshair")
+                                highlightbackground="#666",
+                                cursor="crosshair")
         self.canvas.pack(**pad)
         self.canvas.bind("<ButtonPress-1>", self.on_press)
         self.canvas.bind("<B1-Motion>", self.on_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
         self.canvas.bind("<Motion>", self.on_hover)
-        self.lbl_board = tk.Label(self.inner, text="Board: (not set)", fg="gray",
-                                  font=("Courier", 9))
+        self.lbl_board = ttk.Label(self.inner, text="Board: (not set)",
+                                   style="Mono.TLabel")
         self.lbl_board.pack(**pad)
-        self.btn_clear = tk.Button(self.inner, text="Clear board",
-                                   command=self.clear_board, state="disabled")
+        self.btn_clear = ttk.Button(self.inner, text="Clear board",
+                                    command=self.clear_board, state="disabled")
         self.btn_clear.pack(**pad)
 
         # step 3 - puzzle info (name required; pieces/difficulty optional)
-        tk.Label(self.inner, text="3.  Puzzle info  (name required)",
-                 font=("Helvetica", 11, "bold"), anchor="w").pack(
-                     fill="x", **pad)
-        info_frame = tk.Frame(self.inner)
-        info_frame.pack(anchor="w", padx=24, pady=2)
+        ttk.Label(self.inner, text="3.  Puzzle info  (name required)",
+                  style="Step.TLabel").pack(fill="x", **pad)
+        info_frame = ttk.Frame(self.inner)
+        info_frame.pack(anchor="w", padx=28, pady=4)
         self.puzzle_name = tk.StringVar()
         self.num_pieces = tk.StringVar()
         self.difficulty = tk.StringVar(value=DIFFICULTY_CHOICES[0])
-        tk.Label(info_frame, text="Name:", width=10, anchor="w").grid(
-            row=0, column=0, sticky="w", pady=2)
-        tk.Entry(info_frame, textvariable=self.puzzle_name, width=40).grid(
-            row=0, column=1, sticky="w", pady=2)
-        tk.Label(info_frame, text="Pieces:", width=10, anchor="w").grid(
-            row=1, column=0, sticky="w", pady=2)
-        tk.Entry(info_frame, textvariable=self.num_pieces, width=12).grid(
-            row=1, column=1, sticky="w", pady=2)
-        tk.Label(info_frame, text="Difficulty:", width=10, anchor="w").grid(
-            row=2, column=0, sticky="w", pady=2)
-        tk.OptionMenu(info_frame, self.difficulty,
-                      *DIFFICULTY_CHOICES).grid(row=2, column=1,
-                                                sticky="w", pady=2)
+        ttk.Label(info_frame, text="Name:", width=10, anchor="w").grid(
+            row=0, column=0, sticky="w", pady=3)
+        ttk.Entry(info_frame, textvariable=self.puzzle_name, width=40).grid(
+            row=0, column=1, sticky="w", pady=3)
+        ttk.Label(info_frame, text="Pieces:", width=10, anchor="w").grid(
+            row=1, column=0, sticky="w", pady=3)
+        ttk.Entry(info_frame, textvariable=self.num_pieces, width=12).grid(
+            row=1, column=1, sticky="w", pady=3)
+        ttk.Label(info_frame, text="Difficulty:", width=10, anchor="w").grid(
+            row=2, column=0, sticky="w", pady=3)
+        ttk.Combobox(info_frame, textvariable=self.difficulty,
+                     values=DIFFICULTY_CHOICES, state="readonly",
+                     width=18).grid(row=2, column=1, sticky="w", pady=3)
 
-        tk.Label(self.inner, text="4.  Options",
-                 font=("Helvetica", 11, "bold"), anchor="w").pack(
-                     fill="x", **pad)
+        ttk.Label(self.inner, text="4.  Options",
+                  style="Step.TLabel").pack(fill="x", **pad)
         self.swap = tk.BooleanVar(value=False)
         self.preview_choice = tk.StringVar(value=PREVIEW_CHOICES[0])
         self.faster = tk.BooleanVar(value=False)
-        tk.Checkbutton(self.inner, text="Left/Right labels look reversed - swap them",
-                       variable=self.swap).pack(anchor="w", padx=24)
-        preview_row = tk.Frame(self.inner)
-        preview_row.pack(anchor="w", padx=24, pady=2)
-        tk.Label(preview_row, text="Annotated review video:").pack(side="left")
-        tk.OptionMenu(preview_row, self.preview_choice,
-                      *PREVIEW_CHOICES).pack(side="left", padx=6)
-        tk.Checkbutton(self.inner, text="Faster processing (slightly less precise)",
-                       variable=self.faster).pack(anchor="w", padx=24)
+        ttk.Checkbutton(self.inner,
+                        text="Left/Right labels look reversed - swap them",
+                        variable=self.swap).pack(anchor="w", padx=28)
+        preview_row = ttk.Frame(self.inner)
+        preview_row.pack(anchor="w", padx=28, pady=3)
+        ttk.Label(preview_row, text="Annotated review video:").pack(
+            side="left")
+        ttk.Combobox(preview_row, textvariable=self.preview_choice,
+                     values=PREVIEW_CHOICES, state="readonly",
+                     width=18).pack(side="left", padx=8)
+        ttk.Checkbutton(self.inner,
+                        text="Faster processing (slightly less precise)",
+                        variable=self.faster).pack(anchor="w", padx=28)
 
-        tk.Label(self.inner, text="5.  Run",
-                 font=("Helvetica", 11, "bold"), anchor="w").pack(
-                     fill="x", **pad)
-        self.btn_run = tk.Button(self.inner, text="Analyze video",
-                                 font=("Helvetica", 12, "bold"),
-                                 command=self.run_analysis, state="disabled",
-                                 bg="#3c5af0", fg="white")
-        self.btn_run.pack(**pad)
+        ttk.Label(self.inner, text="5.  Run",
+                  style="Step.TLabel").pack(fill="x", **pad)
+        self.btn_run = ttk.Button(self.inner, text="Analyze video",
+                                  style="Accent.TButton",
+                                  command=self.run_analysis,
+                                  state="disabled")
+        self.btn_run.pack(**pad, ipady=4)
 
+        log_bg, log_fg = self._log_palette()
         self.log = scrolledtext.ScrolledText(self.inner, height=8, width=74,
                                              state="disabled",
-                                             font=("Courier", 9))
+                                             font=("Consolas", 9),
+                                             bg=log_bg, fg=log_fg,
+                                             insertbackground=log_fg,
+                                             relief="flat",
+                                             borderwidth=0)
         self.log.pack(**pad)
+
+        self._apply_theme(self.theme)
+
+    # ---- theming ----------------------------------------------------------
+    def _configure_styles(self):
+        """Apply sv_ttk if available and register named ttk styles."""
+        if _HAS_SV_TTK:
+            sv_ttk.set_theme(self.theme)
+        style = ttk.Style()
+        style.configure("Title.TLabel",
+                        font=("Segoe UI Semibold", 18))
+        style.configure("Step.TLabel",
+                        font=("Segoe UI Semibold", 11))
+        style.configure("Hint.TLabel",
+                        foreground=self._hint_color())
+        style.configure("Mono.TLabel",
+                        font=("Consolas", 9))
+
+    def _hint_color(self):
+        return _HINT_FG_DARK if self.theme == "dark" else _HINT_FG_LIGHT
+
+    def _chrome_bg(self):
+        # background color for the scroll container (matches ttk theme)
+        return _DARK_BG if self.theme == "dark" else _LIGHT_BG
+
+    def _log_palette(self):
+        if self.theme == "dark":
+            return ("#161616", _DARK_FG)
+        return ("#fafafa", _LIGHT_FG)
+
+    def _toggle_theme(self):
+        new = "light" if self.theme == "dark" else "dark"
+        self._apply_theme(new)
+
+    def _apply_theme(self, theme):
+        self.theme = theme
+        if _HAS_SV_TTK:
+            sv_ttk.set_theme(theme)
+        # sv_ttk.set_theme() rebuilds the ttk style table, so our named
+        # styles need to be re-registered after each switch.
+        style = ttk.Style()
+        style.configure("Title.TLabel", font=("Segoe UI Semibold", 18))
+        style.configure("Step.TLabel", font=("Segoe UI Semibold", 11))
+        style.configure("Hint.TLabel", foreground=self._hint_color())
+        style.configure("Mono.TLabel", font=("Consolas", 9))
+        # update widgets that aren't ttk-managed
+        self.scroll_canvas.configure(bg=self._chrome_bg())
+        log_bg, log_fg = self._log_palette()
+        self.log.config(bg=log_bg, fg=log_fg, insertbackground=log_fg)
+        self.btn_theme.config(
+            text=("☀  Light" if theme == "dark" else "🌙  Dark"))
 
     # ---- video selection / preview ----------------------------------------
     def choose_video(self):
@@ -258,7 +345,7 @@ class App:
         if not path:
             return
         self.video = path
-        self.lbl_file.config(text=os.path.basename(path), fg="black")
+        self.lbl_file.config(text=os.path.basename(path), style="TLabel")
         self.clear_board()
         self.load_preview()
         # pre-fill the puzzle name from the video filename if it's empty,
@@ -267,7 +354,8 @@ class App:
             self.puzzle_name.set(os.path.splitext(os.path.basename(path))[0])
         # reset Run button in case we were in the post-success "Open Results" state
         self.btn_run.config(state="normal", text="Analyze video",
-                            bg="#3c5af0", command=self.run_analysis)
+                            style="Accent.TButton",
+                            command=self.run_analysis)
 
     def load_preview(self):
         cap = cv2.VideoCapture(self.video)
@@ -419,15 +507,14 @@ class App:
     def _update_board(self):
         if not self.box:
             self.board = None
-            self.lbl_board.config(text="Board: (not set)", fg="gray")
+            self.lbl_board.config(text="Board: (not set)")
             return
         dw, dh = self.disp
         x1, y1, x2, y2 = self.box
         self.board = (round(x1 / dw, 3), round(y1 / dh, 3),
                       round(x2 / dw, 3), round(y2 / dh, 3))
         self.lbl_board.config(
-            text="Board: (%.2f, %.2f) - (%.2f, %.2f)" % self.board,
-            fg="black")
+            text="Board: (%.2f, %.2f) - (%.2f, %.2f)" % self.board)
 
     def clear_board(self):
         self.box = None
@@ -435,7 +522,7 @@ class App:
         self.dragged = False
         self.drag_mode = None
         self.canvas.delete("board")
-        self.lbl_board.config(text="Board: (not set)", fg="gray")
+        self.lbl_board.config(text="Board: (not set)")
 
     # ---- run --------------------------------------------------------------
     def run_analysis(self):
@@ -537,11 +624,12 @@ class App:
             self._log("\nDone. Results saved to:\n" + self.outdir)
             self.btn_run.config(state="normal",
                                 text="✓  Done!  Open Results Folder",
-                                bg="#2c8a3a",
+                                style="Accent.TButton",
                                 command=self._open_results)
         else:
             self.btn_run.config(state="normal", text="Analyze video",
-                                bg="#3c5af0", command=self.run_analysis)
+                                style="Accent.TButton",
+                                command=self.run_analysis)
             messagebox.showerror("Error", "Analysis failed - see the log.")
 
     def _open_results(self):
