@@ -5,7 +5,7 @@
 # Python 3.10-3.12 is recommended. Python 3.8/3.9 also works; pip will
 # pick the latest compatible mediapipe wheel for the running interpreter.
 
-mediapipe>=0.10.9
+mediapipe>=0.10.21
 opencv-python-headless>=4.5
 numpy>=1.21
 matplotlib>=3.5

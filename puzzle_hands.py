@@ -27,7 +27,7 @@ USAGE
   python puzzle_hands.py VIDEO.mp4 --fps 8           # faster first pass
   python puzzle_hands.py VIDEO.mp4 --preview-seconds 120   # limit video out
 
-Requires: mediapipe==0.10.14, opencv-python-headless, numpy, matplotlib
+Requires: mediapipe>=0.10.21, opencv-python-headless, numpy, matplotlib
 """
 
 import argparse
@@ -40,8 +40,13 @@ import time
 import cv2
 import numpy as np
 import mediapipe as mp
+from mediapipe.tasks import python as mp_tasks
+from mediapipe.tasks.python import vision as mp_vision
 
 import puzzle_report
+
+HAND_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "hand_landmarker.task")
 
 TIPS = [4, 8, 12, 16, 20]
 MCPS = [0, 5, 9, 13, 17]
@@ -146,9 +151,20 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
           % (name, native_fps, eff_fps, start_f, end_f,
              (end_f - start_f) / native_fps / 60.0))
 
-    hands = mp.solutions.hands.Hands(
-        static_image_mode=False, max_num_hands=2,
-        min_detection_confidence=0.5, min_tracking_confidence=0.5)
+    if not os.path.exists(HAND_MODEL_PATH):
+        sys.exit("Missing hand_landmarker.task next to puzzle_hands.py - "
+                 "re-download the release zip or run "
+                 "`curl -L -o hand_landmarker.task https://storage.googleapis.com"
+                 "/mediapipe-models/hand_landmarker/hand_landmarker/float16/1"
+                 "/hand_landmarker.task` in the project folder.")
+    landmarker = mp_vision.HandLandmarker.create_from_options(
+        mp_vision.HandLandmarkerOptions(
+            base_options=mp_tasks.BaseOptions(model_asset_path=HAND_MODEL_PATH),
+            running_mode=mp_vision.RunningMode.VIDEO,
+            num_hands=2,
+            min_hand_detection_confidence=0.5,
+            min_hand_presence_confidence=0.5,
+            min_tracking_confidence=0.5))
 
     # ---- PASS 1: stream, detect, keep only lightweight landmark data -------
     expected_N = max(1, (end_f - start_f) // step)
@@ -162,11 +178,14 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         if not ok:
             break
         if (fi - start_f) % step == 0:
-            res = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB,
+                                data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            ts_ms = int((fi - start_f) * 1000 / native_fps)
+            res = landmarker.detect_for_video(mp_image, ts_ms)
             dets = []
-            if res.multi_hand_landmarks:
-                for hlm in res.multi_hand_landmarks:
-                    pts = [(p.x, p.y) for p in hlm.landmark]
+            if res.hand_landmarks:
+                for hlm in res.hand_landmarks:
+                    pts = [(p.x, p.y) for p in hlm]
                     feats = hand_features(pts)
                     if feats is None:
                         continue
@@ -189,7 +208,7 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
     print("__PROGRESS__ 1.0 0", flush=True)
     print("__STAGE__ Generating reports and charts", flush=True)
     cap.release()
-    hands.close()
+    landmarker.close()
     N = len(dets_per_frame)
     if bg_frame is None and N:                       # fallback bg frame
         bg_idx = N // 2

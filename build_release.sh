@@ -15,6 +15,7 @@ FILES=(
     puzzle_hands.py
     puzzle_report.py
     requirements.txt
+    hand_landmarker.task
     HOW_TO_USE.md
     README.md
     Start_Windows.bat
