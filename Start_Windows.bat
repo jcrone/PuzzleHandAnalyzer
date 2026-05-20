@@ -24,7 +24,7 @@ if errorlevel 1 (
 )
 
 if not exist .venv (
-    echo Creating local environment (one-time, about 30 seconds)...
+    echo Creating local environment ^(one-time, about 30 seconds^)...
     python -m venv .venv
     if errorlevel 1 (
         echo.
