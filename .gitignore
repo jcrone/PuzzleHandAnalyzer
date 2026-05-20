@@ -1,0 +1,22 @@
+puzzle_output/
+RollingHills.mp4
+RollingHills_analysis/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Per-puzzle analysis output folders (created next to videos)
+*_analysis/
+
+# Local assistant + tooling state
+.claude/
+.venv/
+
+# Generic media this repo doesn't track
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.m4v
