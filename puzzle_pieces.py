@@ -100,8 +100,7 @@ class PieceTracker:
         fg = self.bg.apply(frame, learningRate=0.005)
         _, fg = cv2.threshold(fg, 200, 255, cv2.THRESH_BINARY)
         hm = _hand_mask_fn(self.W, self.H, hands_pts)
-        if hm is not None:
-            fg[hm > 0] = 0
+        fg[hm > 0] = 0
         fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, self._open_kernel)
         fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, self._close_kernel)
 
