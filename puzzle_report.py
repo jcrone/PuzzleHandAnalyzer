@@ -27,7 +27,6 @@ import argparse
 import csv
 import json
 import os
-import sys
 
 import numpy as np
 import matplotlib
@@ -52,15 +51,16 @@ PCT_LO, PCT_HI = 10, 90         # percentile bounds for the zone rectangle
 # ------------------------------------------------------------------- loading
 def load_data(json_path):
     """Returns (summary_dict, perframe_cols_dict, base_path_without_suffix)."""
-    with open(json_path) as f:
-        summary = json.load(f)
     if not json_path.endswith("_metrics.json"):
-        sys.exit("expected a <name>_metrics.json file, got: " + json_path)
+        raise ValueError("expected a <name>_metrics.json file, got: "
+                         + json_path)
+    with open(json_path, encoding="utf-8") as f:
+        summary = json.load(f)
     base = json_path[:-len("_metrics.json")]
     csv_path = base + "_perframe.csv"
     if not os.path.exists(csv_path):
-        sys.exit("missing per-frame data: " + csv_path)
-    with open(csv_path) as f:
+        raise FileNotFoundError("missing per-frame data: " + csv_path)
+    with open(csv_path, encoding="utf-8") as f:
         r = csv.reader(f)
         header = next(r)
         rows = [list(map(float, row)) for row in r]

@@ -152,11 +152,12 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
              (end_f - start_f) / native_fps / 60.0))
 
     if not os.path.exists(HAND_MODEL_PATH):
-        sys.exit("Missing hand_landmarker.task next to puzzle_hands.py - "
-                 "re-download the release zip or run "
-                 "`curl -L -o hand_landmarker.task https://storage.googleapis.com"
-                 "/mediapipe-models/hand_landmarker/hand_landmarker/float16/1"
-                 "/hand_landmarker.task` in the project folder.")
+        raise RuntimeError(
+            "Missing hand_landmarker.task next to puzzle_hands.py - "
+            "re-download the release zip or run "
+            "`curl -L -o hand_landmarker.task https://storage.googleapis.com"
+            "/mediapipe-models/hand_landmarker/hand_landmarker/float16/1"
+            "/hand_landmarker.task` in the project folder.")
     landmarker = mp_vision.HandLandmarker.create_from_options(
         mp_vision.HandLandmarkerOptions(
             base_options=mp_tasks.BaseOptions(model_asset_path=HAND_MODEL_PATH),
@@ -172,43 +173,45 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
     bg_frame, bg_idx = None, -1
     t0 = time.time()
     fi = start_f
-    cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
-    while fi < end_f:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        if (fi - start_f) % step == 0:
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB,
-                                data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            ts_ms = int((fi - start_f) * 1000 / native_fps)
-            res = landmarker.detect_for_video(mp_image, ts_ms)
-            dets = []
-            if res.hand_landmarks:
-                for hlm in res.hand_landmarks:
-                    pts = [(p.x, p.y) for p in hlm]
-                    feats = hand_features(pts)
-                    if feats is None:
-                        continue
-                    feats["hand"] = geometric_handedness(pts)
-                    dets.append(feats)
-            j = len(dets_per_frame)
-            dets_per_frame.append(dets)
-            if bg_idx < 0 and len(dets) == 2:        # first 2-hand frame
-                bg_frame, bg_idx = frame.copy(), j
-            if j % 200 == 0 and j:
-                elapsed = time.time() - t0
-                rate = j / elapsed
-                eta = max(0, (expected_N - j) / rate) if rate > 0 else 0
-                print("  pass1: %d/%d frames (%ds elapsed, ~%ds remaining)"
-                      % (j, expected_N, int(elapsed), int(eta)))
-                # structured line for the GUI to parse (fraction + eta seconds)
-                print("__PROGRESS__ %.4f %d"
-                      % (j / expected_N, int(eta)), flush=True)
-        fi += 1
-    print("__PROGRESS__ 1.0 0", flush=True)
-    print("__STAGE__ Generating reports and charts", flush=True)
-    cap.release()
-    landmarker.close()
+    try:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
+        while fi < end_f:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if (fi - start_f) % step == 0:
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB,
+                                    data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                ts_ms = int((fi - start_f) * 1000 / native_fps)
+                res = landmarker.detect_for_video(mp_image, ts_ms)
+                dets = []
+                if res.hand_landmarks:
+                    for hlm in res.hand_landmarks:
+                        pts = [(p.x, p.y) for p in hlm]
+                        feats = hand_features(pts)
+                        if feats is None:
+                            continue
+                        feats["hand"] = geometric_handedness(pts)
+                        dets.append(feats)
+                j = len(dets_per_frame)
+                dets_per_frame.append(dets)
+                if bg_idx < 0 and len(dets) == 2:        # first 2-hand frame
+                    bg_frame, bg_idx = frame.copy(), j
+                if j % 200 == 0 and j:
+                    elapsed = time.time() - t0
+                    rate = j / elapsed
+                    eta = max(0, (expected_N - j) / rate) if rate > 0 else 0
+                    print("  pass1: %d/%d frames (%ds elapsed, ~%ds remaining)"
+                          % (j, expected_N, int(elapsed), int(eta)))
+                    # structured line for the GUI to parse (fraction + eta seconds)
+                    print("__PROGRESS__ %.4f %d"
+                          % (j / expected_N, int(eta)), flush=True)
+            fi += 1
+        print("__PROGRESS__ 1.0 0", flush=True)
+        print("__STAGE__ Generating reports and charts", flush=True)
+    finally:
+        cap.release()
+        landmarker.close()
     N = len(dets_per_frame)
     if bg_frame is None and N:                       # fallback bg frame
         bg_idx = N // 2
@@ -463,10 +466,10 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
 
     # ---- write data --------------------------------------------------------
     base = os.path.join(outdir, name)
-    with open(base + "_metrics.json", "w") as f:
+    with open(base + "_metrics.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
-    with open(base + "_perframe.csv", "w", newline="") as f:
+    with open(base + "_perframe.csv", "w", newline="", encoding="utf-8") as f:
         wr = csv.writer(f)
         cols = ["frame", "time_s"]
         for s in ("right", "left"):
