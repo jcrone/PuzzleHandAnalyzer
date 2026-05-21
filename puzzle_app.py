@@ -248,6 +248,9 @@ class App:
                                     command=self.clear_board, state="disabled")
         self.btn_clear.pack(**pad)
 
+        # reconcile initial cursor / button state with the default board_mode
+        self._on_board_mode_change()
+
         # step 3 - puzzle info (name required; pieces/difficulty optional)
         ttk.Label(self.inner, text="3.  Puzzle info  (name required)",
                   style="Step.TLabel").pack(fill="x", **pad)
@@ -552,6 +555,9 @@ class App:
         if self.board_mode.get() == "auto":
             # Wipe any manual rectangle and disable drawing
             self.board = None
+            self.box = None
+            self.drag_mode = None
+            self.dragged = False
             self.canvas.delete("board")
             self.canvas.config(cursor="arrow")
             self.lbl_board.config(
