@@ -132,5 +132,27 @@ class TestClusterMapperUpdate(unittest.TestCase):
         self.assertGreaterEqual(len(tr["history_seconds"]), 2)
 
 
+    def test_dormant_track_clears_on_rematch(self):
+        from puzzle_clusters import ClusterMapper
+        m = ClusterMapper(W=400, H=400, eff_fps=10.0,
+                          survey_interval_s=5.0,
+                          area_min_frac=0.0001, area_max_frac=0.5,
+                          cluster_eps=0.10, dormant_after_surveys=2)
+        # Seed one cluster
+        blobs = [(0.40, 0.35), (0.50, 0.35), (0.45, 0.42)]
+        f_seed = self._synth_frame(400, 400, blobs)
+        m.update(f_seed, [], frame_idx=0, t=0.0)
+        # Two consecutive blank surveys -> the track should go dormant
+        f_blank = self._synth_frame(400, 400, [])
+        m.update(f_blank, [], frame_idx=50, t=5.0)
+        m.update(f_blank, [], frame_idx=100, t=10.0)
+        tid = next(iter(m.tracks))
+        self.assertTrue(m.tracks[tid]["dormant"])
+        # Now the cluster returns -> track should re-activate
+        m.update(f_seed, [], frame_idx=150, t=15.0)
+        self.assertFalse(m.tracks[tid]["dormant"])
+        self.assertEqual(m.tracks[tid]["consecutive_misses"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

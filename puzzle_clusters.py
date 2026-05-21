@@ -4,7 +4,7 @@ Runs alongside the hand pipeline in puzzle_hands.py. Every
 `survey_interval_s` seconds (default 5s) it:
 
   1. Builds a stationary-blob list from the current frame using edge
-     detection + contour finding + a 1-second stillness check.
+     detection + contour finding + a survey-interval stillness gate.
   2. DBSCAN-clusters nearby stationary blobs into puzzle clusters.
   3. Matches detected clusters to existing tracked clusters by bounding
      box IoU, carrying IDs across surveys.
@@ -202,6 +202,10 @@ class ClusterMapper:
         roi_prev = self._prev_frame[y:y + h, x:x + w]
         if roi_now.shape != roi_prev.shape or roi_now.size == 0:
             return False
+        # A blob that was absent last survey (dark background) counts as
+        # newly placed — accept it rather than treating it as a moving hand.
+        if roi_prev.mean() < 8.0:
+            return True
         sad = cv2.absdiff(roi_now, roi_prev).mean()
         return sad < 8.0   # tunable; SAD over a settled puzzle piece is tiny
 
@@ -237,6 +241,7 @@ class ClusterMapper:
                 tr["bbox_at_peak"] = c["bbox"]
             tr["final_count"] = c["count"]
             tr["consecutive_misses"] = 0
+            tr["dormant"] = False
 
         # Increment miss counter for unmatched tracks
         for tid, tr in self.tracks.items():
