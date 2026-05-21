@@ -43,6 +43,7 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision as mp_vision
 
+import puzzle_clusters
 import puzzle_pieces
 import puzzle_report
 
@@ -122,11 +123,60 @@ def hand_features(lm):
             "pinch": pinch, "openness": openness, "pts": p.tolist()}
 
 
+# --------------------------------------------------------- cluster helpers
+def _serialize_clusters(clusters):
+    """Convert ClusterRecord dicts into the JSON-friendly schema."""
+    out = []
+    for tr in clusters:
+        out.append({
+            "id": int(tr["id"]),
+            "born_t": round(float(tr["born_t"]), 2),
+            "last_seen_t": round(float(tr["last_seen_t"]), 2),
+            "initial_count": int(tr["initial_count"]),
+            "peak_count": int(tr["peak_count"]),
+            "final_count": int(tr["final_count"]),
+            "net_growth": int(tr["final_count"] - tr["initial_count"]),
+            "bbox_at_peak": [round(float(v), 4)
+                             for v in tr["bbox_at_peak"]],
+            "is_main": bool(tr.get("is_main", False)),
+            "merged_into": tr.get("merged_into"),
+            "merged_from": list(tr.get("merged_from", [])),
+            "history_seconds": [round(float(t), 2)
+                                for t in tr["history_seconds"]],
+            "history_counts": [int(c) for c in tr["history_counts"]],
+        })
+    return out
+
+
+def _cluster_counts_at(clusters, t_now):
+    """Look up (largest_cluster_size, cluster_count) at time t_now.
+
+    For each cluster, finds the last survey at or before t_now and uses
+    its count. Clusters whose first survey is after t_now are skipped.
+    """
+    largest, active = 0, 0
+    for tr in clusters:
+        hist_t = tr["history_seconds"]
+        hist_c = tr["history_counts"]
+        last_idx = -1
+        for i in range(len(hist_t)):
+            if hist_t[i] <= t_now:
+                last_idx = i
+            else:
+                break
+        if last_idx < 0:
+            continue
+        active += 1
+        if hist_c[last_idx] > largest:
+            largest = hist_c[last_idx]
+    return [int(largest), int(active)]
+
+
 # ----------------------------------------------------------------- analysis
 def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
             grip_thresh, board, seg_seconds, preview_seconds, swap,
             want_video, outdir, puzzle_name=None, num_pieces=None,
-            difficulty=None, track_pieces=True):
+            difficulty=None, track_pieces=True, track_clusters=True):
     name = os.path.splitext(os.path.basename(video))[0]
     os.makedirs(outdir, exist_ok=True)
 
@@ -174,6 +224,9 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
     piece_tracker = (puzzle_pieces.PieceTracker(W, H, board=board,
                                                 eff_fps=eff_fps)
                      if track_pieces else None)
+    cluster_mapper = (puzzle_clusters.ClusterMapper(
+                         W, H, num_pieces=num_pieces, eff_fps=eff_fps)
+                      if track_clusters else None)
     t0 = time.time()
     fi = start_f
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
@@ -201,6 +254,8 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
             dets_per_frame.append(dets)
             if piece_tracker is not None:
                 piece_tracker.update(frame, hands_pts_frame, j, j / eff_fps)
+            if cluster_mapper is not None:
+                cluster_mapper.update(frame, hands_pts_frame, j, j / eff_fps)
             if bg_idx < 0 and len(dets) == 2:        # first 2-hand frame
                 bg_frame, bg_idx = frame.copy(), j
             if j % 200 == 0 and j:
@@ -360,6 +415,20 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
 
     per_hand = {s: hand_block(s) for s in ("left", "right")}
 
+    # ---- cluster mapper finalize -------------------------------------------
+    cluster_history = []
+    milestones = []
+    cluster_summary = None
+    inferred_board = None
+    board_source = "manual" if board is not None else "none"
+
+    if cluster_mapper is not None:
+        cluster_history, milestones = cluster_mapper.finalize(N)
+        cluster_summary = cluster_mapper.last_summary
+        inferred_board = cluster_mapper.inferred_board()
+        if board is None and inferred_board is not None:
+            board_source = "auto-detected"
+
     # ---- piece tracks ------------------------------------------------------
     # Pieces are linked to a hand by the nearest grip-event in time + space:
     # grip-releases attribute placements, grip-onsets attribute pickups.
@@ -368,6 +437,8 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
     pieces_on_board = np.zeros(N, dtype=int)
     piece_summary = None
     if piece_tracker is not None:
+        if piece_tracker.board is None and inferred_board is not None:
+            piece_tracker.board = inferred_board
         grip_events = {"right": {"onset": [], "offset": []},
                        "left":  {"onset": [], "offset": []}}
         for s in ("right", "left"):
@@ -499,6 +570,40 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         summary["piece_summary"] = piece_summary
         summary["pieces"] = pieces_list
 
+    summary["board_source"] = board_source
+    if board_source == "auto-detected" and inferred_board is not None:
+        summary["board_region"] = inferred_board
+    if cluster_summary is not None:
+        # Quality flag computation
+        notes = []
+        quality = "high"
+        hand_det = (summary["left"]["detected_pct"] +
+                    summary["right"]["detected_pct"]) / 2.0
+        main_peak = cluster_summary["main_cluster_peak_count"]
+        if hand_det < 60:
+            quality = "low"
+            notes.append(
+                "Hand detection rate %.0f%% - piece detections may be affected"
+                % hand_det)
+        elif hand_det < 75:
+            quality = "medium"
+            notes.append(
+                "Hand detection rate %.0f%% - some piece detections may be obscured"
+                % hand_det)
+        if main_peak < 20:
+            quality = "low"
+            notes.append(
+                "Main cluster peak count %d - very little assembly detected"
+                % main_peak)
+        if cluster_summary["tiebreak_used"]:
+            quality = "medium" if quality == "high" else quality
+            notes.append("Tiebreak used to pick main cluster")
+        cluster_summary["detection_quality"] = quality
+        cluster_summary["quality_notes"] = notes
+        summary["cluster_summary"] = cluster_summary
+        summary["clusters"] = _serialize_clusters(cluster_history)
+        summary["milestones"] = milestones
+
     # ---- write data --------------------------------------------------------
     base = os.path.join(outdir, name)
     with open(base + "_metrics.json", "w") as f:
@@ -515,6 +620,8 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
                 cols.append("%s_in_board" % s)
         if piece_tracker is not None:
             cols += ["pieces_visible", "pieces_on_board"]
+        if cluster_mapper is not None:
+            cols += ["largest_cluster_size", "cluster_count"]
         wr.writerow(cols)
         for i in range(N):
             row = [i, round(i / eff_fps, 3)]
@@ -529,6 +636,9 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
                     row.append(int(S["in_board"][i]))
             if piece_tracker is not None:
                 row += [int(pieces_visible[i]), int(pieces_on_board[i])]
+            if cluster_mapper is not None:
+                t_now = i / eff_fps
+                row += _cluster_counts_at(cluster_history, t_now)
             wr.writerow(row)
 
     _chart(base, N, eff_fps, series, summary)
@@ -750,6 +860,8 @@ if __name__ == "__main__":
                     help="skip the annotated video (faster)")
     ap.add_argument("--no-pieces", action="store_true",
                     help="skip visual piece tracking (faster pass 1)")
+    ap.add_argument("--no-clusters", action="store_true",
+                    help="skip cluster detection / milestones (faster pass 1)")
     ap.add_argument("--outdir", default="puzzle_output")
     ap.add_argument("--puzzle-name", default=None,
                     help="puzzle title (shown on the report)")
@@ -766,5 +878,6 @@ if __name__ == "__main__":
                       not a.no_video, a.outdir,
                       puzzle_name=a.puzzle_name, num_pieces=a.pieces,
                       difficulty=a.difficulty,
-                      track_pieces=not a.no_pieces)
+                      track_pieces=not a.no_pieces,
+                      track_clusters=not a.no_clusters)
     print(json.dumps(summary, indent=2))
