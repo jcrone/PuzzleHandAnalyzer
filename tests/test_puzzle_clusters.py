@@ -443,5 +443,39 @@ class TestMilestones(unittest.TestCase):
         self.assertEqual(sp["details"]["count"], 15)
 
 
+    def test_islands_merged_suppressed_for_tiny_clusters(self):
+        from puzzle_clusters import ClusterMapper
+        m = ClusterMapper(W=200, H=200, num_pieces=100, eff_fps=10.0)
+        bbox = (0.2, 0.2, 0.7, 0.7)
+        # Both clusters have peak_count well below ISLAND_MIN_PEAK (10)
+        m.tracks[1] = {
+            "id": 1, "born_t": 10.0, "last_seen_t": 100.0,
+            "initial_count": 2, "peak_count": 4, "final_count": 4,
+            "bbox_at_peak": bbox, "last_bbox": bbox,
+            "history_seconds": [10.0, 100.0],
+            "history_counts": [2, 4],
+            "history_bboxes": [bbox, bbox],
+            "consecutive_misses": 0, "dormant": False,
+            "merged_into": None, "merged_from": [],
+        }
+        m.tracks[2] = {
+            "id": 2, "born_t": 50.0, "last_seen_t": 200.0,
+            "initial_count": 2, "peak_count": 6, "final_count": 6,
+            "bbox_at_peak": bbox, "last_bbox": bbox,
+            "history_seconds": [50.0, 200.0],
+            "history_counts": [2, 6],
+            "history_bboxes": [bbox, bbox],
+            "consecutive_misses": 0, "dormant": False,
+            "merged_into": None, "merged_from": [1],
+        }
+        m.next_id = 3
+        m.events.append(("merged", 180.0,
+                         {"from_id": 1, "into_id": 2,
+                          "from_peak": 4, "into_peak": 6}))
+        _, milestones = m.finalize(n_frames=1000)
+        types = [ms["type"] for ms in milestones]
+        self.assertNotIn("islands_merged", types)
+
+
 if __name__ == "__main__":
     unittest.main()

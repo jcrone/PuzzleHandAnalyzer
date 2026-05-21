@@ -309,8 +309,8 @@ class ClusterMapper:
     # ---- finalize (Tasks 3, 4) ------------------------------------------
     def finalize(self, n_frames):
         """Classify clusters, prune noise, populate is_main, return
-        (clusters_list, milestones_list). Milestones list is filled by
-        Task 4; this task leaves it empty."""
+        (clusters_list, milestones_list). Milestones are computed by
+        _compute_milestones from the finalized track history."""
         # 1. Prune transient noise
         kept = [tr for tr in self.tracks.values()
                 if tr["peak_count"] >= self.PRUNE_PEAK_BELOW]
@@ -419,7 +419,7 @@ class ClusterMapper:
                 if len(members) < 4:
                     continue
                 ms_arr = np.array(members)
-                # Pairwise spacings along each axis (small percentile = a piece-width)
+                # Median gap between unique x (or y) positions ≈ one piece-width
                 xs = np.sort(np.unique(ms_arr[:, 0]))
                 ys = np.sort(np.unique(ms_arr[:, 1]))
                 if len(xs) < 2 or len(ys) < 2:
