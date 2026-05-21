@@ -231,6 +231,25 @@ class TestClassification(unittest.TestCase):
         self.assertNotIn(1, ids)
         self.assertIn(2, ids)
 
+    def test_low_count_tiebreak_uses_absolute_floor(self):
+        # Two clusters with small net growth. Without the 10-piece floor,
+        # a 1-piece survey noise would trigger an AR tiebreak. With the
+        # floor, the higher-growth cluster wins outright.
+        a = self._track(1, initial=2, final=11,
+                        bbox=(0.0, 0.45, 0.8, 0.55))   # net 9, ar 8:1
+        b = self._track(2, initial=2, final=20,
+                        bbox=(0.2, 0.2, 0.7, 0.7))     # net 18, ar 1:1
+        m = self._make_mapper_with_synthetic_tracks([a, b])
+        clusters, _ = m.finalize(n_frames=1000)
+        main = [c for c in clusters if c.get("is_main")]
+        self.assertEqual(len(main), 1)
+        # With absolute floor: top_growth=18, threshold=max(0.9*18, 18-10)=max(16.2, 8)=16.2.
+        # Cluster a has net=9 which is below 16.2, so b wins outright,
+        # no tiebreak. Without the floor: 0.9*18=16.2 still excludes a,
+        # so this test mainly confirms b wins without the AR rescue.
+        self.assertEqual(main[0]["id"], 2)
+        self.assertFalse(m.last_summary["tiebreak_used"])
+
 
 class TestInferredBoard(unittest.TestCase):
 

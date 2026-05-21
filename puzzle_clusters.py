@@ -127,6 +127,12 @@ class ClusterMapper:
         board = m.inferred_board()    # None or [x1, y1, x2, y2]
     """
 
+    NET_GROWTH_MIN = 5             # cluster must grow by this much to qualify
+    PRUNE_PEAK_BELOW = 3           # drop tracks whose peak_count < this
+    PUZZLE_AR_MIN = 0.5            # typical puzzle aspect ratios 1:2 .. 2:1
+    PUZZLE_AR_MAX = 2.0
+    TIEBREAK_BAND = 0.9            # relative growth threshold for tiebreak candidates
+
     def __init__(self, W, H, num_pieces=None, eff_fps=12.0,
                  survey_interval_s=5.0,
                  area_min_frac=0.0004, area_max_frac=0.012,
@@ -148,14 +154,10 @@ class ClusterMapper:
         self.next_id = 1
         self.surveys = []                # list of (t, [clusters_this_survey])
         self.events = []                 # ("born"|"merged"|..., t, payload)
+        self.last_summary = {}           # populated by finalize(); safe to read anytime
         self._last_survey_frame = -10 ** 9
         self._prev_frame = None          # for stillness comparison
         self._prev_frame_idx = -1
-
-    NET_GROWTH_MIN = 5             # cluster must grow by this much to qualify
-    PRUNE_PEAK_BELOW = 3           # drop tracks whose peak_count < this
-    PUZZLE_AR_MIN = 0.5            # typical puzzle aspect ratios 1:2 .. 2:1
-    PUZZLE_AR_MAX = 2.0
 
     # ---- per-frame entry point ------------------------------------------
     def update(self, frame, hands_pts, frame_idx, t):
@@ -303,8 +305,8 @@ class ClusterMapper:
         main = None
         if candidates:
             top_growth = max(tr["net_growth"] for tr in candidates)
-            top = [tr for tr in candidates
-                   if tr["net_growth"] >= 0.9 * top_growth]
+            threshold = max(self.TIEBREAK_BAND * top_growth, top_growth - 10)
+            top = [tr for tr in candidates if tr["net_growth"] >= threshold]
             if len(top) == 1:
                 main = top[0]
             else:
