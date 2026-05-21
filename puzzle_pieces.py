@@ -31,6 +31,8 @@ approximate.
 import numpy as np
 import cv2
 
+from puzzle_vision_utils import hand_mask as _hand_mask_fn
+
 
 # ----------------------------------------------------------------- helpers
 def _color_hist(roi):
@@ -87,33 +89,17 @@ class PieceTracker:
         self.tracks = {}
         self.next_id = 1
 
-        self._hand_kernel = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (35, 35))
         self._open_kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (5, 5))
         self._close_kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (11, 11))
 
     # -------- per-frame ----------------------------------------------------
-    def _hand_mask(self, hands_pts):
-        m = np.zeros((self.H, self.W), dtype=np.uint8)
-        for pts in hands_pts:
-            if not pts or len(pts) < 3:
-                continue
-            arr = np.array(
-                [[int(x * self.W), int(y * self.H)] for x, y in pts],
-                dtype=np.int32)
-            hull = cv2.convexHull(arr)
-            cv2.fillConvexPoly(m, hull, 255)
-        if m.any():
-            m = cv2.dilate(m, self._hand_kernel)
-        return m
-
     def update(self, frame, hands_pts, frame_idx, t):
         """Run detection + tracking on one BGR frame."""
         fg = self.bg.apply(frame, learningRate=0.005)
         _, fg = cv2.threshold(fg, 200, 255, cv2.THRESH_BINARY)
-        hm = self._hand_mask(hands_pts)
+        hm = _hand_mask_fn(self.W, self.H, hands_pts)
         if hm is not None:
             fg[hm > 0] = 0
         fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, self._open_kernel)
