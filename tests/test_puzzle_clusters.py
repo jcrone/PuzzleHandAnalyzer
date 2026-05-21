@@ -273,5 +273,175 @@ class TestInferredBoard(unittest.TestCase):
         self.assertEqual(board, [0.1, 0.2, 0.7, 0.8])
 
 
+class TestMilestones(unittest.TestCase):
+
+    def _mapper_with_growth_history(self, num_pieces, history):
+        """history is [(t, count, bbox), ...] for a single growing cluster."""
+        from puzzle_clusters import ClusterMapper
+        m = ClusterMapper(W=200, H=200, num_pieces=num_pieces, eff_fps=10.0)
+        history_seconds = [h[0] for h in history]
+        history_counts = [h[1] for h in history]
+        history_bboxes = [h[2] for h in history]
+        m.tracks[1] = {
+            "id": 1, "born_t": history[0][0],
+            "last_seen_t": history[-1][0],
+            "initial_count": history[0][1],
+            "peak_count": max(history_counts),
+            "final_count": history[-1][1],
+            "bbox_at_peak": history_bboxes[history_counts.index(max(history_counts))],
+            "last_bbox": history_bboxes[-1],
+            "history_seconds": history_seconds,
+            "history_counts": history_counts,
+            "history_bboxes": history_bboxes,
+            "consecutive_misses": 0, "dormant": False,
+            "merged_into": None, "merged_from": [],
+        }
+        m.next_id = 2
+        return m
+
+    def test_first_piece_joined_fires(self):
+        bbox = (0.2, 0.2, 0.7, 0.7)
+        m = self._mapper_with_growth_history(
+            100, [(10.0, 2, bbox), (20.0, 50, bbox)])
+        _, milestones = m.finalize(n_frames=1000)
+        types = [ms["type"] for ms in milestones]
+        self.assertIn("first_piece_joined", types)
+        fp = next(ms for ms in milestones if ms["type"] == "first_piece_joined")
+        self.assertAlmostEqual(fp["t"], 10.0)
+        self.assertEqual(fp["cluster_id"], 1)
+
+    def test_25_50_75_pct_thresholds(self):
+        bbox = (0.2, 0.2, 0.7, 0.7)
+        # num_pieces=100 -> 25/50/75 pieces = thresholds
+        history = [(10.0 * i, 5 * i, bbox) for i in range(1, 21)]   # 5,10,...,100
+        m = self._mapper_with_growth_history(100, history)
+        _, milestones = m.finalize(n_frames=1000)
+        types = [ms["type"] for ms in milestones]
+        for t in ("cluster_25pct", "cluster_50pct", "cluster_75pct"):
+            self.assertIn(t, types)
+        # 25% threshold crossed at count >= 25 -> first such survey is i=5 (count=25)
+        ms25 = next(m for m in milestones if m["type"] == "cluster_25pct")
+        self.assertEqual(ms25["details"]["count"], 25)
+
+    def test_pct_milestones_omitted_when_num_pieces_none(self):
+        bbox = (0.2, 0.2, 0.7, 0.7)
+        m = self._mapper_with_growth_history(
+            None, [(10.0, 2, bbox), (20.0, 50, bbox), (30.0, 80, bbox)])
+        m.num_pieces = None  # explicit
+        _, milestones = m.finalize(n_frames=1000)
+        types = [ms["type"] for ms in milestones]
+        for t in ("cluster_25pct", "cluster_50pct", "cluster_75pct"):
+            self.assertNotIn(t, types)
+        # but first_piece_joined still present
+        self.assertIn("first_piece_joined", types)
+
+    def test_frame_complete_fires_on_ring_shape(self):
+        from puzzle_clusters import ClusterMapper, _perimeter_fraction
+        # Build a roughly 25x20 ring of piece positions inside a bbox
+        bbox = (0.1, 0.1, 0.9, 0.7)
+        x1, y1, x2, y2 = bbox
+        cols, rows = 25, 20
+        ring = []
+        for c in range(cols):
+            for r in range(rows):
+                if c == 0 or c == cols - 1 or r == 0 or r == rows - 1:
+                    fx = x1 + (c + 0.5) * (x2 - x1) / cols
+                    fy = y1 + (r + 0.5) * (y2 - y1) / rows
+                    ring.append((fx, fy))
+        count = len(ring)   # 2*(25+20)-4 = 86
+        m = self._mapper_with_growth_history(
+            500, [(10.0, 2, bbox), (1800.0, count, bbox)])
+        # Patch history_members on the track so frame-complete can inspect it
+        m.tracks[1]["history_members"] = [ring, ring]
+        _, milestones = m.finalize(n_frames=1000)
+        types = [ms["type"] for ms in milestones]
+        self.assertIn("frame_complete", types)
+
+    def test_frame_complete_does_not_fire_on_filled_rectangle(self):
+        # A 25x20 fully-filled rectangle (500 pieces) — high interior fraction
+        bbox = (0.1, 0.1, 0.9, 0.7)
+        x1, y1, x2, y2 = bbox
+        cols, rows = 25, 20
+        filled = []
+        for c in range(cols):
+            for r in range(rows):
+                fx = x1 + (c + 0.5) * (x2 - x1) / cols
+                fy = y1 + (r + 0.5) * (y2 - y1) / rows
+                filled.append((fx, fy))
+        m = self._mapper_with_growth_history(
+            500, [(10.0, 2, bbox), (1800.0, len(filled), bbox)])
+        m.tracks[1]["history_members"] = [filled, filled]
+        _, milestones = m.finalize(n_frames=1000)
+        types = [ms["type"] for ms in milestones]
+        self.assertNotIn("frame_complete", types)
+
+    def test_islands_merged_event_becomes_milestone(self):
+        from puzzle_clusters import ClusterMapper
+        m = ClusterMapper(W=200, H=200, num_pieces=100, eff_fps=10.0)
+        bbox = (0.2, 0.2, 0.7, 0.7)
+        m.tracks[1] = {
+            "id": 1, "born_t": 10.0, "last_seen_t": 100.0,
+            "initial_count": 2, "peak_count": 30, "final_count": 30,
+            "bbox_at_peak": bbox, "last_bbox": bbox,
+            "history_seconds": [10.0, 100.0],
+            "history_counts": [2, 30],
+            "history_bboxes": [bbox, bbox],
+            "consecutive_misses": 0, "dormant": False,
+            "merged_into": None, "merged_from": [],
+        }
+        m.tracks[2] = {
+            "id": 2, "born_t": 50.0, "last_seen_t": 200.0,
+            "initial_count": 2, "peak_count": 60, "final_count": 60,
+            "bbox_at_peak": bbox, "last_bbox": bbox,
+            "history_seconds": [50.0, 200.0],
+            "history_counts": [2, 60],
+            "history_bboxes": [bbox, bbox],
+            "consecutive_misses": 0, "dormant": False,
+            "merged_into": None, "merged_from": [1],
+        }
+        m.next_id = 3
+        m.events.append(("merged", 180.0,
+                         {"from_id": 1, "into_id": 2,
+                          "from_peak": 30, "into_peak": 60}))
+        _, milestones = m.finalize(n_frames=1000)
+        types = [ms["type"] for ms in milestones]
+        self.assertIn("islands_merged", types)
+
+    def test_sort_pile_cleared_fires(self):
+        from puzzle_clusters import ClusterMapper
+        m = ClusterMapper(W=200, H=200, num_pieces=100, eff_fps=10.0)
+        bbox_pile = (0.0, 0.0, 0.3, 0.4)
+        bbox_asm = (0.4, 0.2, 0.9, 0.8)
+        # Pile shrinks 200 -> 15 (below 20% of peak=200, i.e. 40)
+        m.tracks[1] = {
+            "id": 1, "born_t": 0.0, "last_seen_t": 900.0,
+            "initial_count": 200, "peak_count": 200, "final_count": 15,
+            "bbox_at_peak": bbox_pile, "last_bbox": bbox_pile,
+            "history_seconds": [0.0, 300.0, 600.0, 900.0],
+            "history_counts": [200, 100, 50, 15],
+            "history_bboxes": [bbox_pile] * 4,
+            "consecutive_misses": 0, "dormant": False,
+            "merged_into": None, "merged_from": [],
+        }
+        m.tracks[2] = {
+            "id": 2, "born_t": 100.0, "last_seen_t": 1800.0,
+            "initial_count": 2, "peak_count": 80, "final_count": 80,
+            "bbox_at_peak": bbox_asm, "last_bbox": bbox_asm,
+            "history_seconds": [100.0, 1800.0],
+            "history_counts": [2, 80],
+            "history_bboxes": [bbox_asm] * 2,
+            "consecutive_misses": 0, "dormant": False,
+            "merged_into": None, "merged_from": [],
+        }
+        m.next_id = 3
+        _, milestones = m.finalize(n_frames=2000)
+        types = [ms["type"] for ms in milestones]
+        self.assertIn("sort_pile_cleared", types)
+        sp = next(ms for ms in milestones if ms["type"] == "sort_pile_cleared")
+        # Pile drops below 20% of peak (= 40) somewhere between count=50 and count=15
+        # Expected at t=900 (where count dropped to 15).
+        self.assertEqual(sp["details"]["count"], 15)
+
+
 if __name__ == "__main__":
     unittest.main()

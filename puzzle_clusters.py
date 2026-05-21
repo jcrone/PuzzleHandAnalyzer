@@ -83,6 +83,19 @@ def bbox_iou(a, b):
     return inter / union if union > 0 else 0.0
 
 
+def _perimeter_fraction(members, bbox, piece_size_x, piece_size_y):
+    """Fraction of cluster members within 1 piece-width of the bbox edge."""
+    if not members:
+        return 0.0
+    x1, y1, x2, y2 = bbox
+    n_perim = 0
+    for (mx, my) in members:
+        if (mx - x1 < piece_size_x or x2 - mx < piece_size_x or
+                my - y1 < piece_size_y or y2 - my < piece_size_y):
+            n_perim += 1
+    return n_perim / len(members)
+
+
 def blobs_to_clusters(blobs, eps, min_samples):
     """Cluster a list of stationary blobs using DBSCAN.
 
@@ -132,6 +145,14 @@ class ClusterMapper:
     PUZZLE_AR_MIN = 0.5            # typical puzzle aspect ratios 1:2 .. 2:1
     PUZZLE_AR_MAX = 2.0
     TIEBREAK_BAND = 0.9            # relative growth threshold for tiebreak candidates
+
+    # Milestone thresholds
+    FRAME_CLUSTER_SIZE_MIN_FRAC = 0.80
+    FRAME_CLUSTER_SIZE_MAX_FRAC = 1.30
+    FRAME_PERIMETER_FRACTION = 0.85
+    ISLAND_MIN_PEAK = 10
+    PILE_CLEARED_PEAK_FRAC = 0.20
+    PILE_CLEARED_ABS_MIN = 20
 
     def __init__(self, W, H, num_pieces=None, eff_fps=12.0,
                  survey_interval_s=5.0,
@@ -243,6 +264,7 @@ class ClusterMapper:
             tr["history_seconds"].append(t)
             tr["history_counts"].append(c["count"])
             tr["history_bboxes"].append(c["bbox"])
+            tr.setdefault("history_members", []).append(c["members"])
             if c["count"] > tr["peak_count"]:
                 tr["peak_count"] = c["count"]
                 tr["bbox_at_peak"] = c["bbox"]
@@ -276,6 +298,7 @@ class ClusterMapper:
                 "history_seconds": [t],
                 "history_counts": [c["count"]],
                 "history_bboxes": [c["bbox"]],
+                "history_members": [c["members"]],
                 "consecutive_misses": 0,
                 "dormant": False,
                 "merged_into": None,
@@ -333,7 +356,7 @@ class ClusterMapper:
             "tiebreak_used": tiebreak_used,
         }
 
-        milestones = []          # filled in Task 4
+        milestones = self._compute_milestones(kept, main)
         return kept, milestones
 
     def inferred_board(self):
@@ -346,3 +369,131 @@ class ClusterMapper:
                 x1, y1, x2, y2 = tr["bbox_at_peak"]
                 return [float(x1), float(y1), float(x2), float(y2)]
         return None
+
+    def _compute_milestones(self, kept, main):
+        ms = []
+
+        # first_piece_joined - first survey where main reached >= 2
+        if main is not None:
+            for t, count in zip(main["history_seconds"], main["history_counts"]):
+                if count >= 2:
+                    ms.append({
+                        "t": float(t),
+                        "type": "first_piece_joined",
+                        "label": "First two pieces joined",
+                        "cluster_id": main["id"],
+                        "confidence": "high",
+                    })
+                    break
+
+        # cluster_25/50/75 - only if num_pieces is supplied
+        if main is not None and self.num_pieces:
+            n = float(self.num_pieces)
+            for frac, label in [(0.25, "cluster_25pct"),
+                                (0.50, "cluster_50pct"),
+                                (0.75, "cluster_75pct")]:
+                threshold = frac * n
+                for t, count in zip(main["history_seconds"],
+                                    main["history_counts"]):
+                    if count >= threshold:
+                        ms.append({
+                            "t": float(t),
+                            "type": label,
+                            "label": "Cluster reached %d%% of pieces (%d / %d)"
+                                     % (int(frac * 100), int(count), int(n)),
+                            "cluster_id": main["id"],
+                            "confidence": "high",
+                            "details": {"count": int(count),
+                                        "fraction": round(count / n, 3)},
+                        })
+                        break
+
+        # frame_complete - heuristic on main cluster's history
+        if main is not None and main.get("history_members"):
+            for t, count, bbox, members in zip(
+                    main["history_seconds"], main["history_counts"],
+                    main["history_bboxes"], main["history_members"]):
+                # Estimate puzzle grid dimensions from bbox + median piece spacing
+                x1, y1, x2, y2 = bbox
+                w_box, h_box = x2 - x1, y2 - y1
+                if len(members) < 4:
+                    continue
+                ms_arr = np.array(members)
+                # Pairwise spacings along each axis (small percentile = a piece-width)
+                xs = np.sort(np.unique(ms_arr[:, 0]))
+                ys = np.sort(np.unique(ms_arr[:, 1]))
+                if len(xs) < 2 or len(ys) < 2:
+                    continue
+                piece_w = float(np.median(np.diff(xs)))
+                piece_h = float(np.median(np.diff(ys)))
+                if piece_w <= 0 or piece_h <= 0:
+                    continue
+                cols = max(1, round(w_box / piece_w))
+                rows = max(1, round(h_box / piece_h))
+                expected_frame = 2 * (cols + rows) - 4
+                size_ok = (self.FRAME_CLUSTER_SIZE_MIN_FRAC * expected_frame
+                           <= count <=
+                           self.FRAME_CLUSTER_SIZE_MAX_FRAC * expected_frame)
+                if not size_ok:
+                    continue
+                pf = _perimeter_fraction(members, bbox, piece_w, piece_h)
+                if pf > self.FRAME_PERIMETER_FRACTION:
+                    ms.append({
+                        "t": float(t),
+                        "type": "frame_complete",
+                        "label": "Outer frame appears complete",
+                        "cluster_id": main["id"],
+                        "confidence": "medium",
+                        "details": {
+                            "perimeter_fraction": round(pf, 3),
+                            "expected_frame_pieces": int(expected_frame),
+                        },
+                    })
+                    break
+
+        # islands_merged - one per qualifying merge event
+        for ev_type, t, payload in self.events:
+            if ev_type != "merged":
+                continue
+            if (payload.get("from_peak", 0) >= self.ISLAND_MIN_PEAK and
+                    payload.get("into_peak", 0) >= self.ISLAND_MIN_PEAK):
+                ms.append({
+                    "t": float(t),
+                    "type": "islands_merged",
+                    "label": "Two cluster islands merged",
+                    "cluster_id": payload.get("into_id"),
+                    "confidence": "high",
+                    "details": {"from_id": payload.get("from_id"),
+                                "from_peak": payload.get("from_peak"),
+                                "into_peak": payload.get("into_peak")},
+                })
+
+        # sort_pile_cleared - cluster with most negative net growth drops
+        # below 20% of its peak (or below 20 pieces, whichever is lower)
+        piles = sorted(
+            (tr for tr in kept
+             if tr["final_count"] - tr["initial_count"] < 0),
+            key=lambda tr: tr["final_count"] - tr["initial_count"])
+        if piles:
+            pile = piles[0]
+            threshold = min(self.PILE_CLEARED_ABS_MIN,
+                            self.PILE_CLEARED_PEAK_FRAC * pile["peak_count"])
+            for t, count in zip(pile["history_seconds"],
+                                pile["history_counts"]):
+                if count < threshold:
+                    ms.append({
+                        "t": float(t),
+                        "type": "sort_pile_cleared",
+                        "label": "Sort pile mostly worked through",
+                        "cluster_id": pile["id"],
+                        "confidence": "medium",
+                        "details": {
+                            "count": int(count),
+                            "peak": int(pile["peak_count"]),
+                            "threshold": float(threshold),
+                        },
+                    })
+                    break
+
+        ms.sort(key=lambda m: m["t"])
+        return ms
