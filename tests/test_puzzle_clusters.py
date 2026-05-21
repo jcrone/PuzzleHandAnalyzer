@@ -154,5 +154,105 @@ class TestClusterMapperUpdate(unittest.TestCase):
         self.assertEqual(m.tracks[tid]["consecutive_misses"], 0)
 
 
+class TestClassification(unittest.TestCase):
+
+    def _make_mapper_with_synthetic_tracks(self, tracks):
+        """Build a ClusterMapper, then poke synthetic tracks into it
+        directly (bypassing update). tracks is a list of dicts."""
+        from puzzle_clusters import ClusterMapper
+        m = ClusterMapper(W=200, H=200, num_pieces=100, eff_fps=10.0)
+        for tr in tracks:
+            m.tracks[tr["id"]] = tr
+        m.next_id = max(t["id"] for t in tracks) + 1
+        return m
+
+    def _track(self, tid, initial, final, peak=None, bbox=(0.2, 0.2, 0.7, 0.7),
+               born_t=10.0, last_t=100.0):
+        if peak is None:
+            peak = max(initial, final)
+        return {
+            "id": tid, "born_t": born_t, "last_seen_t": last_t,
+            "initial_count": initial, "peak_count": peak,
+            "final_count": final, "bbox_at_peak": bbox,
+            "last_bbox": bbox,
+            "history_seconds": [born_t, last_t],
+            "history_counts": [initial, final],
+            "history_bboxes": [bbox, bbox],
+            "consecutive_misses": 0, "dormant": False,
+            "merged_into": None, "merged_from": [],
+        }
+
+    def test_assembly_cluster_wins_over_sort_pile(self):
+        # Pile: starts at 200, ends at 10 (net growth -190)
+        # Assembly: starts at 2, ends at 80 (net growth +78)
+        pile = self._track(1, initial=200, final=10,
+                           bbox=(0.0, 0.0, 0.3, 0.4))
+        asm = self._track(2, initial=2, final=80,
+                          bbox=(0.4, 0.2, 0.9, 0.8))
+        m = self._make_mapper_with_synthetic_tracks([pile, asm])
+        clusters, _milestones = m.finalize(n_frames=1000)
+        main = [c for c in clusters if c.get("is_main")]
+        self.assertEqual(len(main), 1)
+        self.assertEqual(main[0]["id"], 2)
+
+    def test_no_main_when_nothing_grows(self):
+        # Only sort pile present; no assembly cluster
+        pile = self._track(1, initial=200, final=10)
+        m = self._make_mapper_with_synthetic_tracks([pile])
+        clusters, _ = m.finalize(n_frames=1000)
+        main = [c for c in clusters if c.get("is_main")]
+        self.assertEqual(len(main), 0)
+        self.assertIsNone(m.inferred_board())
+
+    def test_aspect_ratio_tiebreak(self):
+        # Both clusters have similar positive growth. The one whose
+        # aspect ratio is closer to a typical puzzle (1:2 .. 2:1) wins.
+        # ar 4:1 -> elongated, looks like a pile shoved against an edge
+        a = self._track(1, initial=2, final=50,
+                        bbox=(0.0, 0.45, 0.8, 0.55))   # aspect 8:1
+        # ar 1:1 -> classic puzzle shape
+        b = self._track(2, initial=2, final=48,
+                        bbox=(0.2, 0.2, 0.7, 0.7))     # aspect 1:1
+        m = self._make_mapper_with_synthetic_tracks([a, b])
+        clusters, _ = m.finalize(n_frames=1000)
+        main = [c for c in clusters if c.get("is_main")]
+        self.assertEqual(len(main), 1)
+        self.assertEqual(main[0]["id"], 2)
+        # cluster_summary should record the tiebreak path
+        self.assertTrue(m.last_summary["tiebreak_used"])
+
+    def test_prunes_tiny_noise_tracks(self):
+        # A track that never grew past peak_count=2 should be removed
+        noise = self._track(1, initial=2, final=2, peak=2)
+        asm = self._track(2, initial=2, final=50, peak=50)
+        m = self._make_mapper_with_synthetic_tracks([noise, asm])
+        clusters, _ = m.finalize(n_frames=1000)
+        ids = {c["id"] for c in clusters}
+        self.assertNotIn(1, ids)
+        self.assertIn(2, ids)
+
+
+class TestInferredBoard(unittest.TestCase):
+
+    def test_returns_main_cluster_bbox_at_peak(self):
+        from puzzle_clusters import ClusterMapper
+        m = ClusterMapper(W=200, H=200, num_pieces=100, eff_fps=10.0)
+        m.tracks[2] = {
+            "id": 2, "born_t": 10.0, "last_seen_t": 100.0,
+            "initial_count": 2, "peak_count": 80, "final_count": 80,
+            "bbox_at_peak": (0.1, 0.2, 0.7, 0.8),
+            "last_bbox": (0.1, 0.2, 0.7, 0.8),
+            "history_seconds": [10.0, 100.0],
+            "history_counts": [2, 80],
+            "history_bboxes": [(0.1, 0.2, 0.7, 0.8), (0.1, 0.2, 0.7, 0.8)],
+            "consecutive_misses": 0, "dormant": False,
+            "merged_into": None, "merged_from": [],
+        }
+        m.next_id = 3
+        m.finalize(n_frames=1000)   # populates is_main
+        board = m.inferred_board()
+        self.assertEqual(board, [0.1, 0.2, 0.7, 0.8])
+
+
 if __name__ == "__main__":
     unittest.main()

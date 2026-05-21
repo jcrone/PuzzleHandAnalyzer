@@ -152,6 +152,11 @@ class ClusterMapper:
         self._prev_frame = None          # for stillness comparison
         self._prev_frame_idx = -1
 
+    NET_GROWTH_MIN = 5             # cluster must grow by this much to qualify
+    PRUNE_PEAK_BELOW = 3           # drop tracks whose peak_count < this
+    PUZZLE_AR_MIN = 0.5            # typical puzzle aspect ratios 1:2 .. 2:1
+    PUZZLE_AR_MAX = 2.0
+
     # ---- per-frame entry point ------------------------------------------
     def update(self, frame, hands_pts, frame_idx, t):
         """Most frames are no-ops; heavy work fires every survey_stride_frames."""
@@ -276,19 +281,66 @@ class ClusterMapper:
             }
             self.events.append(("born", t, {"cluster_id": tid}))
 
-    # ---- finalize stubs (filled in Tasks 3, 4) --------------------------
+    # ---- finalize (Tasks 3, 4) ------------------------------------------
     def finalize(self, n_frames):
-        """Returns (clusters_list, milestones_list).
+        """Classify clusters, prune noise, populate is_main, return
+        (clusters_list, milestones_list). Milestones list is filled by
+        Task 4; this task leaves it empty."""
+        # 1. Prune transient noise
+        kept = [tr for tr in self.tracks.values()
+                if tr["peak_count"] >= self.PRUNE_PEAK_BELOW]
 
-        Task 2 leaves this as a passthrough that returns raw cluster data
-        with no classification or milestones. Tasks 3 and 4 add real
-        logic. Integration in Task 5 wires this into puzzle_hands.py.
-        """
-        clusters_list = list(self.tracks.values())
-        milestones = []
-        return clusters_list, milestones
+        # 2. Compute net growth for each surviving track
+        for tr in kept:
+            tr["net_growth"] = tr["final_count"] - tr["initial_count"]
+            tr["is_main"] = False
+
+        # 3. Pick the main (assembly) cluster: max positive net growth.
+        #    Tiebreak: aspect ratio closest to 1:1 within the puzzle band.
+        candidates = [tr for tr in kept
+                      if tr["net_growth"] >= self.NET_GROWTH_MIN]
+        tiebreak_used = False
+        main = None
+        if candidates:
+            top_growth = max(tr["net_growth"] for tr in candidates)
+            top = [tr for tr in candidates
+                   if tr["net_growth"] >= 0.9 * top_growth]
+            if len(top) == 1:
+                main = top[0]
+            else:
+                tiebreak_used = True
+                def ar_score(tr):
+                    x1, y1, x2, y2 = tr["bbox_at_peak"]
+                    w = max(1e-6, x2 - x1); h = max(1e-6, y2 - y1)
+                    ar = w / h
+                    in_band = self.PUZZLE_AR_MIN <= ar <= self.PUZZLE_AR_MAX
+                    # closer to 1.0 is better; out-of-band gets penalised
+                    return abs(np.log(ar)) + (0.0 if in_band else 10.0)
+                main = min(top, key=ar_score)
+            main["is_main"] = True
+
+        # 4. Cluster summary (used by puzzle_hands.py later)
+        self.last_summary = {
+            "total_clusters_observed": len(self.tracks),
+            "total_clusters_kept": len(kept),
+            "main_cluster_id": main["id"] if main else None,
+            "main_cluster_peak_count": main["peak_count"] if main else 0,
+            "main_cluster_net_growth": main["net_growth"] if main else 0,
+            "merge_events": sum(1 for e in self.events if e[0] == "merged"),
+            "survey_interval_s": self.survey_interval_s,
+            "tiebreak_used": tiebreak_used,
+        }
+
+        milestones = []          # filled in Task 4
+        return kept, milestones
 
     def inferred_board(self):
-        """Returns None for now. Task 3 implements assembly-vs-pile
-        classification and returns the main cluster's bbox_at_peak."""
+        """Return [x1, y1, x2, y2] of the main cluster's bbox at peak,
+        or None if no assembly cluster was identified.
+
+        finalize() must be called first."""
+        for tr in self.tracks.values():
+            if tr.get("is_main"):
+                x1, y1, x2, y2 = tr["bbox_at_peak"]
+                return [float(x1), float(y1), float(x2), float(y2)]
         return None
