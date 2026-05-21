@@ -177,6 +177,7 @@ class App:
         self.preview_img = None
         self.box = None                 # (x1,y1,x2,y2) canvas pixels, sorted
         self.board = None               # normalized 0-1 tuple
+        self.board_mode = tk.StringVar(value="auto")    # "auto" | "manual"
         self.drag_mode = None
         self.drag_offset = (0, 0)
         self.create_start = None
@@ -203,13 +204,32 @@ class App:
                                   style="Hint.TLabel")
         self.lbl_file.pack(**pad)
 
-        ttk.Label(self.inner, text="2.  (Optional) Mark the puzzle board",
+        ttk.Label(self.inner, text="2.  Board area (auto-detected by default)",
                   style="Step.TLabel").pack(fill="x", **pad)
-        ttk.Label(self.inner,
-                  text="Click and drag to draw a box around the puzzle "
-                       "board.\nDrag a corner to resize, drag the middle "
-                       "to move. Skip if unsure.",
-                  style="Hint.TLabel", justify="left").pack(**pad)
+
+        ttk.Radiobutton(
+            self.inner,
+            text="Auto-detect board",
+            variable=self.board_mode, value="auto",
+            command=self._on_board_mode_change,
+        ).pack(anchor="w", padx=28)
+        ttk.Label(
+            self.inner,
+            text="    Recommended if your board area changes during play\n"
+                 "    (e.g. sort pile in the middle, then pushed aside).",
+            style="Hint.TLabel", justify="left").pack(anchor="w", padx=28)
+
+        ttk.Radiobutton(
+            self.inner,
+            text="Set puzzle board manually",
+            variable=self.board_mode, value="manual",
+            command=self._on_board_mode_change,
+        ).pack(anchor="w", padx=28, pady=(6, 0))
+        ttk.Label(
+            self.inner,
+            text="    Draw a rectangle on the preview to mark the assembly zone.",
+            style="Hint.TLabel", justify="left").pack(anchor="w", padx=28)
+
         self.canvas = tk.Canvas(self.inner, width=PREVIEW_W, height=200,
                                 bg="#222", highlightthickness=1,
                                 highlightbackground="#666",
@@ -219,12 +239,17 @@ class App:
         self.canvas.bind("<B1-Motion>", self.on_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
         self.canvas.bind("<Motion>", self.on_hover)
-        self.lbl_board = ttk.Label(self.inner, text="Board: (not set)",
-                                   style="Mono.TLabel")
+        self.lbl_board = ttk.Label(
+            self.inner,
+            text="Board: will be auto-detected from cluster footprint",
+            style="Mono.TLabel")
         self.lbl_board.pack(**pad)
-        self.btn_clear = ttk.Button(self.inner, text="Clear board",
+        self.btn_clear = ttk.Button(self.inner, text="Reset to auto-detect",
                                     command=self.clear_board, state="disabled")
         self.btn_clear.pack(**pad)
+
+        # reconcile initial cursor / button state with the default board_mode
+        self._on_board_mode_change()
 
         # step 3 - puzzle info (name required; pieces/difficulty optional)
         ttk.Label(self.inner, text="3.  Puzzle info  (name required)",
@@ -380,7 +405,8 @@ class App:
         self.canvas.config(width=PREVIEW_W, height=dh)
         self.canvas.delete("all")
         self.canvas.create_image(0, 0, anchor="nw", image=self.preview_img)
-        self.btn_clear.config(state="normal")
+        if self.board_mode.get() == "manual":
+            self.btn_clear.config(state="normal")
 
     # ---- board interaction ------------------------------------------------
     def _near_corner(self, x, y):
@@ -405,6 +431,8 @@ class App:
         return max(0, min(x, dw)), max(0, min(y, dh))
 
     def on_press(self, ev):
+        if self.board_mode.get() == "auto":
+            return
         if not self.video:
             return
         x, y = ev.x, ev.y
@@ -423,6 +451,8 @@ class App:
         self.create_start = (x, y)
 
     def on_drag(self, ev):
+        if self.board_mode.get() == "auto":
+            return
         if not self.drag_mode:
             return
         x, y = self._clamp(ev.x, ev.y)
@@ -455,6 +485,8 @@ class App:
         self._draw_box()
 
     def on_release(self, ev):
+        if self.board_mode.get() == "auto":
+            return
         if not self.drag_mode:
             return
         # a click that never moved leaves any existing box untouched
@@ -474,6 +506,8 @@ class App:
         self._draw_box()
 
     def on_hover(self, ev):
+        if self.board_mode.get() == "auto":
+            return
         if self.drag_mode:
             return
         x, y = ev.x, ev.y
@@ -516,13 +550,28 @@ class App:
         self.lbl_board.config(
             text="Board: (%.2f, %.2f) - (%.2f, %.2f)" % self.board)
 
+    def _on_board_mode_change(self):
+        """Toggle canvas interactivity when the user switches modes."""
+        if self.board_mode.get() == "auto":
+            # Wipe any manual rectangle and disable drawing
+            self.board = None
+            self.box = None
+            self.drag_mode = None
+            self.dragged = False
+            self.canvas.delete("board")
+            self.canvas.config(cursor="arrow")
+            self.lbl_board.config(
+                text="Board: will be auto-detected from cluster footprint")
+            self.btn_clear.config(state="disabled")
+        else:
+            self.canvas.config(cursor="crosshair")
+            self.lbl_board.config(text="Board: (not set - draw a rectangle)")
+            self.btn_clear.config(state="normal")
+
     def clear_board(self):
-        self.box = None
-        self.board = None
-        self.dragged = False
-        self.drag_mode = None
-        self.canvas.delete("board")
-        self.lbl_board.config(text="Board: (not set)")
+        """Reset to auto-detect mode."""
+        self.board_mode.set("auto")
+        self._on_board_mode_change()
 
     # ---- run --------------------------------------------------------------
     def run_analysis(self):
