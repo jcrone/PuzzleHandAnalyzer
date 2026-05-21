@@ -31,6 +31,7 @@ Requires: mediapipe>=0.10.21, opencv-python-headless, numpy, matplotlib
 """
 
 import argparse
+import bisect
 import csv
 import json
 import os
@@ -153,22 +154,18 @@ def _cluster_counts_at(clusters, t_now):
 
     For each cluster, finds the last survey at or before t_now and uses
     its count. Clusters whose first survey is after t_now are skipped.
+    history_seconds is monotonically increasing, so bisect is O(log n).
     """
     largest, active = 0, 0
     for tr in clusters:
         hist_t = tr["history_seconds"]
         hist_c = tr["history_counts"]
-        last_idx = -1
-        for i in range(len(hist_t)):
-            if hist_t[i] <= t_now:
-                last_idx = i
-            else:
-                break
-        if last_idx < 0:
+        idx = bisect.bisect_right(hist_t, t_now) - 1
+        if idx < 0:
             continue
         active += 1
-        if hist_c[last_idx] > largest:
-            largest = hist_c[last_idx]
+        if hist_c[idx] > largest:
+            largest = hist_c[idx]
     return [int(largest), int(active)]
 
 
@@ -424,7 +421,7 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
 
     if cluster_mapper is not None:
         cluster_history, milestones = cluster_mapper.finalize(N)
-        cluster_summary = cluster_mapper.last_summary
+        cluster_summary = dict(cluster_mapper.last_summary)
         inferred_board = cluster_mapper.inferred_board()
         if board is None and inferred_board is not None:
             board_source = "auto-detected"
@@ -548,7 +545,6 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         "analyzed_seconds": round(dur_s, 1),
         "processing_fps": round(eff_fps, 1),
         "hands_swapped": swap,
-        "board_region": board,
         "left": per_hand["left"],
         "right": per_hand["right"],
         "bimanual": {
@@ -571,8 +567,7 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         summary["pieces"] = pieces_list
 
     summary["board_source"] = board_source
-    if board_source == "auto-detected" and inferred_board is not None:
-        summary["board_region"] = inferred_board
+    summary["board_region"] = inferred_board if board_source == "auto-detected" else board
     if cluster_summary is not None:
         # Quality flag computation
         notes = []
@@ -596,7 +591,8 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
                 "Main cluster peak count %d - very little assembly detected"
                 % main_peak)
         if cluster_summary["tiebreak_used"]:
-            quality = "medium" if quality == "high" else quality
+            if quality == "high":
+                quality = "medium"
             notes.append("Tiebreak used to pick main cluster")
         cluster_summary["detection_quality"] = quality
         cluster_summary["quality_notes"] = notes
