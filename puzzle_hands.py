@@ -43,6 +43,7 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision as mp_vision
 
+import puzzle_pieces
 import puzzle_report
 
 HAND_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -125,7 +126,7 @@ def hand_features(lm):
 def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
             grip_thresh, board, seg_seconds, preview_seconds, swap,
             want_video, outdir, puzzle_name=None, num_pieces=None,
-            difficulty=None):
+            difficulty=None, track_pieces=True):
     name = os.path.splitext(os.path.basename(video))[0]
     os.makedirs(outdir, exist_ok=True)
 
@@ -170,6 +171,9 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
     expected_N = max(1, (end_f - start_f) // step)
     dets_per_frame = []
     bg_frame, bg_idx = None, -1
+    piece_tracker = (puzzle_pieces.PieceTracker(W, H, board=board,
+                                                eff_fps=eff_fps)
+                     if track_pieces else None)
     t0 = time.time()
     fi = start_f
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
@@ -183,6 +187,7 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
             ts_ms = int((fi - start_f) * 1000 / native_fps)
             res = landmarker.detect_for_video(mp_image, ts_ms)
             dets = []
+            hands_pts_frame = []
             if res.hand_landmarks:
                 for hlm in res.hand_landmarks:
                     pts = [(p.x, p.y) for p in hlm]
@@ -191,8 +196,11 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
                         continue
                     feats["hand"] = geometric_handedness(pts)
                     dets.append(feats)
+                    hands_pts_frame.append(pts)
             j = len(dets_per_frame)
             dets_per_frame.append(dets)
+            if piece_tracker is not None:
+                piece_tracker.update(frame, hands_pts_frame, j, j / eff_fps)
             if bg_idx < 0 and len(dets) == 2:        # first 2-hand frame
                 bg_frame, bg_idx = frame.copy(), j
             if j % 200 == 0 and j:
@@ -352,6 +360,33 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
 
     per_hand = {s: hand_block(s) for s in ("left", "right")}
 
+    # ---- piece tracks ------------------------------------------------------
+    # Pieces are linked to a hand by the nearest grip-event in time + space:
+    # grip-releases attribute placements, grip-onsets attribute pickups.
+    pieces_list = []
+    pieces_visible = np.zeros(N, dtype=int)
+    pieces_on_board = np.zeros(N, dtype=int)
+    piece_summary = None
+    if piece_tracker is not None:
+        grip_events = {"right": {"onset": [], "offset": []},
+                       "left":  {"onset": [], "offset": []}}
+        for s in ("right", "left"):
+            S = series[s]
+            for f in onsets(S["gripping"]):
+                f = int(f)
+                grip_events[s]["onset"].append(
+                    (f, f / eff_fps,
+                     (float(S["cx"][f]), float(S["cy"][f]))))
+            for f in offsets(S["gripping"]):
+                f = int(f)
+                grip_events[s]["offset"].append(
+                    (f, f / eff_fps,
+                     (float(S["cx"][f]), float(S["cy"][f]))))
+        pieces_list, pieces_visible, pieces_on_board = \
+            piece_tracker.finalize(N, grip_events)
+        piece_summary = puzzle_pieces.PieceTracker.summarize(
+            pieces_list, dur_s)
+
     # ---- bimanual + pace ---------------------------------------------------
     rm, lm_ = series["right"]["moving"], series["left"]["moving"]
     rA = series["right"]["moving"] | series["right"]["fingering"]
@@ -460,6 +495,9 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         "segments": segments,
         "phases": phases,
     }
+    if piece_tracker is not None:
+        summary["piece_summary"] = piece_summary
+        summary["pieces"] = pieces_list
 
     # ---- write data --------------------------------------------------------
     base = os.path.join(outdir, name)
@@ -475,6 +513,8 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
                      "%s_pinch" % s, "%s_gripping" % s, "%s_openness" % s]
             if board is not None:
                 cols.append("%s_in_board" % s)
+        if piece_tracker is not None:
+            cols += ["pieces_visible", "pieces_on_board"]
         wr.writerow(cols)
         for i in range(N):
             row = [i, round(i / eff_fps, 3)]
@@ -487,6 +527,8 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
                         round(float(S["openness"][i]), 4)]
                 if board is not None:
                     row.append(int(S["in_board"][i]))
+            if piece_tracker is not None:
+                row += [int(pieces_visible[i]), int(pieces_on_board[i])]
             wr.writerow(row)
 
     _chart(base, N, eff_fps, series, summary)
@@ -706,6 +748,8 @@ if __name__ == "__main__":
                     help="reverse left/right labels for this camera setup")
     ap.add_argument("--no-video", action="store_true",
                     help="skip the annotated video (faster)")
+    ap.add_argument("--no-pieces", action="store_true",
+                    help="skip visual piece tracking (faster pass 1)")
     ap.add_argument("--outdir", default="puzzle_output")
     ap.add_argument("--puzzle-name", default=None,
                     help="puzzle title (shown on the report)")
@@ -721,5 +765,6 @@ if __name__ == "__main__":
                       a.segment_seconds, a.preview_seconds, a.swap_hands,
                       not a.no_video, a.outdir,
                       puzzle_name=a.puzzle_name, num_pieces=a.pieces,
-                      difficulty=a.difficulty)
+                      difficulty=a.difficulty,
+                      track_pieces=not a.no_pieces)
     print(json.dumps(summary, indent=2))
