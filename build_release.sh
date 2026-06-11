@@ -18,6 +18,7 @@ FILES=(
     puzzle_pieces.py
     puzzle_vision_utils.py
     requirements.txt
+    benchmarks.json
     hand_landmarker.task
     HOW_TO_USE.md
     README.md

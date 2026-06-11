@@ -1,0 +1,62 @@
+{
+  "dominance_ratio": {
+    "path": "bimanual.dominance_ratio",
+    "label": "Bimanual symmetry (dominance ratio)",
+    "value": 1.4,
+    "source": "Tammy McLeod (Guinness 500pc), 2 solo sessions",
+    "n": 2,
+    "confidence": "robust",
+    "direction": "lower_is_better",
+    "note": "lower = more two-handed symmetry; elite ~1.4 vs a casual top-3% solver ~2.25"
+  },
+  "fatigue_decline_pct": {
+    "path": "fatigue.grips_per_min_change_pct",
+    "label": "Fatigue resistance (pace change start to end)",
+    "value": -36,
+    "source": "Tammy McLeod, 2 solo sessions",
+    "n": 2,
+    "confidence": "robust",
+    "direction": "higher_is_better",
+    "note": "less negative = holds pace better through the session; elite around -36%"
+  },
+  "combined_grips_per_min": {
+    "path": "pace.combined_grips_per_min",
+    "label": "Combined grip pace (grips/min)",
+    "value": 24,
+    "source": "Tammy McLeod recorded sessions",
+    "n": 2,
+    "confidence": "weak",
+    "direction": "higher_is_better",
+    "note": "recorded casually; her competition ceiling is ~40. Loose reference only."
+  },
+  "parallel_active_pct": {
+    "path": "bimanual.parallel_active_pct",
+    "label": "Parallel-active (both hands working at once)",
+    "value": 23,
+    "source": "Tammy McLeod, 2 sessions",
+    "n": 2,
+    "confidence": "weak",
+    "direction": null,
+    "note": "REVERSED in the data vs a top-3% solver; not a reliable elite marker"
+  },
+  "both_idle_pct": {
+    "path": "bimanual.both_idle_pct",
+    "label": "Both hands idle",
+    "value": 35,
+    "source": "Tammy McLeod, 2 sessions",
+    "n": 2,
+    "confidence": "weak",
+    "direction": "lower_is_better",
+    "note": "weak signal"
+  },
+  "mean_grip_hold_s": {
+    "path": "right.mean_grip_hold_s",
+    "label": "Mean grip hold (s)",
+    "value": 7.0,
+    "source": "Tammy McLeod footage",
+    "n": 2,
+    "confidence": "artifact",
+    "direction": null,
+    "note": "almost certainly an analyzer artifact on her footage; do not trust"
+  }
+}
