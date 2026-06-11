@@ -77,7 +77,7 @@ class TestAssemblyOnset(unittest.TestCase):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `python -m unittest tests.test_puzzle_clusters.TestAssemblyOnset -v`
+Run: `python3 -m unittest tests.test_puzzle_clusters.TestAssemblyOnset -v`
 Expected: FAIL with `ImportError: cannot import name 'assembly_onset'`
 
 - [ ] **Step 3: Implement `assembly_onset`**
@@ -121,7 +121,7 @@ def assembly_onset(history_seconds, history_counts,
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `python -m unittest tests.test_puzzle_clusters.TestAssemblyOnset -v`
+Run: `python3 -m unittest tests.test_puzzle_clusters.TestAssemblyOnset -v`
 Expected: PASS (4 tests)
 
 - [ ] **Step 5: Commit**
@@ -172,7 +172,7 @@ class TestPlacementSplits(unittest.TestCase):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `python -m unittest tests.test_puzzle_clusters.TestPlacementSplits -v`
+Run: `python3 -m unittest tests.test_puzzle_clusters.TestPlacementSplits -v`
 Expected: FAIL with `ImportError`
 
 - [ ] **Step 3: Implement `placement_splits`**
@@ -199,7 +199,7 @@ def placement_splits(history_seconds, history_counts, num_pieces,
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `python -m unittest tests.test_puzzle_clusters.TestPlacementSplits -v`
+Run: `python3 -m unittest tests.test_puzzle_clusters.TestPlacementSplits -v`
 Expected: PASS (3 tests)
 
 - [ ] **Step 5: Commit**
@@ -250,7 +250,7 @@ class TestDetectStalls(unittest.TestCase):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `python -m unittest tests.test_puzzle_clusters.TestDetectStalls -v`
+Run: `python3 -m unittest tests.test_puzzle_clusters.TestDetectStalls -v`
 Expected: FAIL with `ImportError`
 
 - [ ] **Step 3: Implement `detect_stalls`**
@@ -288,7 +288,7 @@ def detect_stalls(history_seconds, history_counts, min_gap_s=STALL_MIN_GAP_S):
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `python -m unittest tests.test_puzzle_clusters.TestDetectStalls -v`
+Run: `python3 -m unittest tests.test_puzzle_clusters.TestDetectStalls -v`
 Expected: PASS (3 tests)
 
 - [ ] **Step 5: Commit**
@@ -350,7 +350,7 @@ class TestPiecesPerMin(unittest.TestCase):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `python -m unittest tests.test_competition_metrics -v`
+Run: `python3 -m unittest tests.test_competition_metrics -v`
 Expected: FAIL with `ImportError: cannot import name 'count_before'`
 
 - [ ] **Step 3: Implement the helpers**
@@ -389,7 +389,7 @@ def pieces_per_min(final_count, total_s, onset_t, count_at_onset):
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `python -m unittest tests.test_competition_metrics -v`
+Run: `python3 -m unittest tests.test_competition_metrics -v`
 Expected: PASS (4 tests)
 
 - [ ] **Step 5: Commit**
@@ -492,12 +492,12 @@ summary["efficiency"] = efficiency
 
 Run against the smallest existing analysis video-free path. Since `analyze` needs video, instead verify the JSON shape by running the full CLI on a short clip if available, or rely on Task 4 unit tests for the pure logic. Minimum check — import stays clean:
 
-Run: `python -c "import puzzle_hands"`
+Run: `python3 -c "import puzzle_hands"`
 Expected: no error.
 
 - [ ] **Step 3: Run the full test suite**
 
-Run: `python -m unittest discover -s tests -v`
+Run: `python3 -m unittest discover -s tests -v`
 Expected: PASS (all existing + new tests).
 
 - [ ] **Step 4: Commit**
@@ -581,7 +581,7 @@ git commit -m "Render placement/flip-phase/efficiency panel in one-pager"
 
 - [ ] **Step 1: Run the whole suite**
 
-Run: `python -m unittest discover -s tests -v`
+Run: `python3 -m unittest discover -s tests -v`
 Expected: PASS — all existing tests plus `TestAssemblyOnset`, `TestPlacementSplits`, `TestDetectStalls`, and `tests/test_competition_metrics.py`.
 
 - [ ] **Step 2: End-to-end on a real clip (manual)**
