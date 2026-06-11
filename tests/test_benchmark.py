@@ -69,3 +69,18 @@ class TestBenchmarkRows(unittest.TestCase):
 
     def test_empty_benchmarks(self):
         self.assertEqual(benchmark_rows(self._summary(), {}), [])
+
+    def test_malformed_entry_skipped(self):
+        bench = dict(self._bench())
+        bench["junk"] = "not a dict"
+        rows = benchmark_rows(self._summary(), bench)
+        self.assertNotIn("junk", [r["key"] for r in rows])
+        self.assertEqual(len(rows), 3)
+
+    def test_missing_value_no_crash(self):
+        bench = {"x": {"path": "bimanual.dominance_ratio", "label": "X",
+                       "n": 1, "confidence": "robust",
+                       "direction": "lower_is_better", "note": ""}}  # no 'value'
+        rows = benchmark_rows(self._summary(), bench)
+        self.assertEqual(rows[0]["elite"], None)
+        self.assertIsNone(rows[0]["verdict"])

@@ -329,7 +329,9 @@ def _get_by_path(summary, dotted):
 
 
 def _bench_verdict(you, elite, direction):
-    if you is None or direction not in ("lower_is_better", "higher_is_better"):
+    if (you is None or elite is None
+            or not isinstance(you, (int, float))
+            or direction not in ("lower_is_better", "higher_is_better")):
         return None
     if abs(you - elite) < 1e-9:
         return "even"
@@ -344,6 +346,8 @@ def benchmark_rows(summary, benchmarks):
     session lacks that metric (verdict then None)."""
     rows = []
     for key, b in benchmarks.items():
+        if not isinstance(b, dict):
+            continue
         you = _get_by_path(summary, b.get("path", ""))
         rows.append({
             "key": key,
