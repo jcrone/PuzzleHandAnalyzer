@@ -34,6 +34,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.gridspec import GridSpec
+from matplotlib.backends.backend_pdf import PdfPages
 
 try:
     import cv2
@@ -364,6 +365,39 @@ def benchmark_rows(summary, benchmarks):
     return rows
 
 
+def _make_benchmark_page(summary):
+    """Second report page: session metrics vs the measured elite reference.
+    Returns a Figure, or None when no benchmarks are available."""
+    rows = benchmark_rows(summary, load_benchmarks())
+    if not rows:
+        return None
+    fig = plt.figure(figsize=(8.5, 11))
+    ax = fig.add_axes([0.06, 0.06, 0.88, 0.88])
+    ax.axis("off")
+    ax.text(0, 1.0, "Elite benchmark comparison", fontsize=20, weight="bold",
+            va="top", transform=ax.transAxes)
+    ax.text(0, 0.955,
+            "Reference = measured from N=2 Tammy McLeod sessions (+1 subject). "
+            "Small sample; confidence tag per row. Not a pass/fail threshold.",
+            fontsize=9, color="#555555", va="top", transform=ax.transAxes,
+            wrap=True)
+    y = 0.88
+    for r in rows:
+        grey = r["confidence"] in ("weak", "artifact")
+        col = "#888888" if grey else "#111111"
+        you = "n/a" if r["you"] is None else ("%g" % r["you"])
+        verdict = ("   [%s]" % r["verdict"]) if r["verdict"] else ""
+        head = "%s:   you %s   vs elite %g   (n=%s, %s)%s" % (
+            r["label"], you, r["elite"], r["n"], r["confidence"], verdict)
+        ax.text(0, y, head, fontsize=11, color=col,
+                weight=("normal" if grey else "bold"),
+                va="top", transform=ax.transAxes)
+        ax.text(0.02, y - 0.028, r["note"], fontsize=8, color="#777777",
+                va="top", transform=ax.transAxes)
+        y -= 0.075
+    return fig
+
+
 # ----------------------------------------------------------------- one pager
 def make_one_pager(summary, windows, sa, base):
     fig = plt.figure(figsize=(8.5, 11))
@@ -645,8 +679,15 @@ def make_one_pager(summary, windows, sa, base):
                 transform=ax.transAxes, ha="right", fontsize=8,
                 color="#888888", style="italic")
 
-    fig.savefig(base + "_report.pdf", bbox_inches="tight")
+    bench_fig = _make_benchmark_page(summary)
+    with PdfPages(base + "_report.pdf") as pdf:
+        pdf.savefig(fig, bbox_inches="tight")
+        if bench_fig is not None:
+            pdf.savefig(bench_fig, bbox_inches="tight")
     fig.savefig(base + "_report.png", dpi=130, bbox_inches="tight")
+    if bench_fig is not None:
+        bench_fig.savefig(base + "_benchmark.png", dpi=130, bbox_inches="tight")
+        plt.close(bench_fig)
     plt.close(fig)
 
 
