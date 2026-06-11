@@ -300,6 +300,66 @@ def _competition_lines(summary):
     return lines
 
 
+# --------------------------------------------------------- elite benchmarks
+_CONF_ORDER = {"robust": 0, "weak": 1, "artifact": 2}
+
+
+def load_benchmarks(path=None):
+    """Load the elite-reference benchmarks JSON. Returns {} if the file is
+    missing or unreadable (graceful - benchmarking is optional)."""
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "benchmarks.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _get_by_path(summary, dotted):
+    """Walk a dotted key path into the summary dict; None if any key is
+    missing or a non-dict is hit."""
+    cur = summary
+    for k in dotted.split("."):
+        if not isinstance(cur, dict) or k not in cur:
+            return None
+        cur = cur[k]
+    return cur
+
+
+def _bench_verdict(you, elite, direction):
+    if you is None or direction not in ("lower_is_better", "higher_is_better"):
+        return None
+    if abs(you - elite) < 1e-9:
+        return "even"
+    better = (you < elite) if direction == "lower_is_better" else (you > elite)
+    return "ahead" if better else "behind"
+
+
+def benchmark_rows(summary, benchmarks):
+    """Build comparison rows from the session summary and benchmark reference.
+    Pure. Each row: {key, label, you, elite, n, confidence, direction,
+    verdict, note}. Sorted robust -> weak -> artifact. `you` is None when the
+    session lacks that metric (verdict then None)."""
+    rows = []
+    for key, b in benchmarks.items():
+        you = _get_by_path(summary, b.get("path", ""))
+        rows.append({
+            "key": key,
+            "label": b.get("label", key),
+            "you": you,
+            "elite": b.get("value"),
+            "n": b.get("n"),
+            "confidence": b.get("confidence", "weak"),
+            "direction": b.get("direction"),
+            "verdict": _bench_verdict(you, b.get("value"), b.get("direction")),
+            "note": b.get("note", ""),
+        })
+    rows.sort(key=lambda r: _CONF_ORDER.get(r["confidence"], 1))
+    return rows
+
+
 # ----------------------------------------------------------------- one pager
 def make_one_pager(summary, windows, sa, base):
     fig = plt.figure(figsize=(8.5, 11))
