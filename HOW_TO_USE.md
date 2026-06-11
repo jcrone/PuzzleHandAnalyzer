@@ -87,6 +87,8 @@ anywhere.
 - `..._calibration.jpg` - a single frame with the hands labeled. Check
   this if you ever doubt Left/Right.
 - `..._annotated.mp4` - the review video (length set in Options).
+- `..._highlight.mp4` - a short (~45s) sped-up highlight reel: each hand
+  drawn as a glowing trail over the board. Small and easy to share.
 - `..._perframe.csv` - the raw data, openable in Excel.
 
 ### If the Left and Right hands are swapped

@@ -14,6 +14,7 @@ FILES=(
     puzzle_app.py
     puzzle_hands.py
     puzzle_report.py
+    puzzle_highlight.py
     puzzle_clusters.py
     puzzle_pieces.py
     puzzle_vision_utils.py

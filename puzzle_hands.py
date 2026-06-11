@@ -48,6 +48,7 @@ from mediapipe.tasks.python import vision as mp_vision
 import puzzle_clusters
 import puzzle_pieces
 import puzzle_report
+import puzzle_highlight
 from puzzle_clusters import assembly_onset, placement_splits, detect_stalls
 
 HAND_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -772,6 +773,10 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         puzzle_report.make_all(base + "_metrics.json")
     except Exception as exc:
         print("report generation failed:", exc)
+    try:
+        puzzle_highlight.make_highlight(base + "_metrics.json")
+    except Exception as exc:
+        print("highlight generation failed:", exc)
     _calibration(base, bg_frame, rec, bg_idx, board, W, H)
     if want_video:
         _video(base, video, rec, series, start_f, step, eff_fps, W, H,
