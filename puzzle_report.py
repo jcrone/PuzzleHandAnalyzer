@@ -10,8 +10,12 @@ Reads a puzzle_hands.py output folder (a <base>_metrics.json and the matching
                         the puzzler was actually picking up / placing pieces
                         in that window.
 
-  <base>_report.pdf     a single-page session summary (also written as .png)
+  <base>_report.pdf     multi-page session summary: page 1 = overview,
+                        page 2 = elite benchmark comparison (when benchmarks
+                        are available); also written as page-1 .png
   <base>_report.png
+  <base>_benchmark.png  benchmark comparison page as a standalone PNG
+                        (written only when benchmark data is present)
 
 Can be run standalone on existing analyses:
 
@@ -386,9 +390,10 @@ def _make_benchmark_page(summary):
         grey = r["confidence"] in ("weak", "artifact")
         col = "#888888" if grey else "#111111"
         you = "n/a" if r["you"] is None else ("%g" % r["you"])
+        elite = "n/a" if r["elite"] is None else ("%g" % r["elite"])
         verdict = ("   [%s]" % r["verdict"]) if r["verdict"] else ""
-        head = "%s:   you %s   vs elite %g   (n=%s, %s)%s" % (
-            r["label"], you, r["elite"], r["n"], r["confidence"], verdict)
+        head = "%s:   you %s   vs elite %s   (n=%s, %s)%s" % (
+            r["label"], you, elite, r["n"], r["confidence"], verdict)
         ax.text(0, y, head, fontsize=11, color=col,
                 weight=("normal" if grey else "bold"),
                 va="top", transform=ax.transAxes)

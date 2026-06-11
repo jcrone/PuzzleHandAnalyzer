@@ -84,3 +84,32 @@ class TestBenchmarkRows(unittest.TestCase):
         rows = benchmark_rows(self._summary(), bench)
         self.assertEqual(rows[0]["elite"], None)
         self.assertIsNone(rows[0]["verdict"])
+
+
+class TestBenchmarkPage(unittest.TestCase):
+    def test_no_benchmarks_returns_none(self):
+        from puzzle_report import _make_benchmark_page
+        # empty benchmarks file path -> no rows -> None (no figure)
+        import puzzle_report
+        orig = puzzle_report.load_benchmarks
+        puzzle_report.load_benchmarks = lambda *a, **k: {}
+        try:
+            self.assertIsNone(_make_benchmark_page({"bimanual": {}}))
+        finally:
+            puzzle_report.load_benchmarks = orig
+
+    def test_renders_with_missing_value_entry(self):
+        # a benchmark entry without 'value' must not crash the page builder
+        from puzzle_report import _make_benchmark_page
+        import puzzle_report, matplotlib
+        orig = puzzle_report.load_benchmarks
+        puzzle_report.load_benchmarks = lambda *a, **k: {
+            "x": {"path": "bimanual.dominance_ratio", "label": "X", "n": 1,
+                  "confidence": "robust", "direction": "lower_is_better",
+                  "note": "no value key"}}
+        try:
+            fig = _make_benchmark_page({"bimanual": {"dominance_ratio": 2.0}})
+            self.assertIsNotNone(fig)
+            matplotlib.pyplot.close(fig)
+        finally:
+            puzzle_report.load_benchmarks = orig
