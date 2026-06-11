@@ -94,3 +94,38 @@ class TestCompetitionBlocks(unittest.TestCase):
                                  both_idle_pct=25.0)
         self.assertNotIn("percent_complete", out["placement"])
         self.assertEqual(out["placement"]["splits"], {})
+
+
+class TestPhaseGripPace(unittest.TestCase):
+    def _grip(self, onset_frames, N):
+        import numpy as np
+        a = np.zeros(N, dtype=bool)
+        for f in onset_frames:          # isolated True -> one rising edge each
+            a[f] = True
+        return a
+
+    def test_split_prep_assembly(self):
+        from puzzle_hands import phase_grip_pace
+        # eff_fps=10, N=200 (20s); boundary at frame 100 (10s)
+        # prep: 3 grips over 10s -> 18/min ; assembly: 2 grips over 10s -> 12/min
+        L = self._grip([10, 30, 50, 120, 160], 200)
+        R = self._grip([], 200)
+        out = phase_grip_pace(L, R, boundary_frame=100, eff_fps=10.0, N=200)
+        self.assertEqual(out["prep_grips_per_min"], 18.0)
+        self.assertEqual(out["assembly_grips_per_min"], 12.0)
+
+    def test_combines_both_hands(self):
+        from puzzle_hands import phase_grip_pace
+        L = self._grip([10, 30], 200)        # 2 in prep
+        R = self._grip([40, 120], 200)       # 1 in prep, 1 in assembly
+        out = phase_grip_pace(L, R, boundary_frame=100, eff_fps=10.0, N=200)
+        self.assertEqual(out["prep_grips_per_min"], 18.0)   # 3 over 10s
+        self.assertEqual(out["assembly_grips_per_min"], 6.0)  # 1 over 10s
+
+    def test_no_boundary_falls_back_to_whole_session(self):
+        from puzzle_hands import phase_grip_pace
+        L = self._grip([10, 30, 50, 120, 160], 200)   # 5 grips over 20s
+        R = self._grip([], 200)
+        out = phase_grip_pace(L, R, boundary_frame=None, eff_fps=10.0, N=200)
+        self.assertIsNone(out["prep_grips_per_min"])
+        self.assertEqual(out["assembly_grips_per_min"], 15.0)

@@ -255,6 +255,27 @@ def competition_blocks(main_cluster, cluster_summary, onset_times,
     return out
 
 
+def phase_grip_pace(left_grip, right_grip, boundary_frame, eff_fps, N):
+    """Combined grip-cycle pace (grips/min) split into the prep (flip/sort)
+    window [0, boundary_frame) and the assembly window [boundary_frame, N).
+    Mirrors the whole-session 'combined' pace definition (sum of each hand's
+    grip onsets). When boundary_frame is None (no flip phase detected), prep
+    is None and assembly falls back to the whole-session pace."""
+    def combined_cycles(a, b):
+        return len(onsets(left_grip[a:b])) + len(onsets(right_grip[a:b]))
+    if boundary_frame is None:
+        secs = max(N / eff_fps, 1e-6)
+        return {"prep_grips_per_min": None,
+                "assembly_grips_per_min": round(combined_cycles(0, N) / secs * 60, 1)}
+    bf = min(N, max(0, int(boundary_frame)))
+    prep_secs = max(bf / eff_fps, 1e-6)
+    asm_secs = max((N - bf) / eff_fps, 1e-6)
+    return {
+        "prep_grips_per_min": round(combined_cycles(0, bf) / prep_secs * 60, 1),
+        "assembly_grips_per_min": round(combined_cycles(bf, N) / asm_secs * 60, 1),
+    }
+
+
 # ----------------------------------------------------------------- analysis
 def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
             grip_thresh, board, seg_seconds, preview_seconds, swap,
@@ -698,6 +719,12 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
     summary.update(competition_blocks(
         main_cluster, cluster_summary, onset_times, dur_s, num_pieces,
         summary["bimanual"]["both_idle_pct"]))
+    # grip-based pace split by prep (flip/sort) vs assembly phase
+    asm_t = summary.get("flip_phase", {}).get("end_t")
+    bframe = int(round(asm_t * eff_fps)) if asm_t is not None else None
+    summary["pace"].update(phase_grip_pace(
+        series["left"]["gripping"], series["right"]["gripping"],
+        bframe, eff_fps, N))
     summary["created"] = datetime.now(timezone.utc).isoformat()
 
     # ---- write data --------------------------------------------------------
