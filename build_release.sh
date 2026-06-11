@@ -14,6 +14,9 @@ FILES=(
     puzzle_app.py
     puzzle_hands.py
     puzzle_report.py
+    puzzle_clusters.py
+    puzzle_pieces.py
+    puzzle_vision_utils.py
     requirements.txt
     hand_landmarker.task
     HOW_TO_USE.md

@@ -77,10 +77,13 @@ left unchanged (nothing breaks). The **placement rate is split** into an
 overall (whole-session) and an assembly-phase variant
 (`overall_pieces_per_min` / `assembly_pieces_per_min`, the latter computed
 over `assembly_start_t → end`), so the real *placing* pace is not diluted by
-the flipping warm-up. This split is part of Feature 1. The grip-based pace
-metrics (`grips_per_min`, per-hand pace) deliberately remain whole-session
-only — splitting them by phase was judged redundant with the pieces/min
-split.
+the flipping warm-up. This split is part of Feature 1. The **combined grip
+pace** is also split by phase (`pace.prep_grips_per_min` /
+`pace.assembly_grips_per_min`, boundary at `flip_phase.end_t`) for the
+grip-tempo view; these live in the JSON and are consumed by the
+analyst/trends tooling (not surfaced on the one-pager, whose competition
+panel is at its 4-line layout limit). Per-hand pace remains whole-session
+only.
 
 When `assembly_start_t` is `None`, `flip_phase` is reported as not detected
 (with the note) and `assembly_pieces_per_min` falls back to the overall
