@@ -1,0 +1,5 @@
+# Keep launcher line endings correct per-OS regardless of the platform git
+# runs on, so the release bundle (built on Linux) ships valid scripts.
+*.bat       text eol=crlf
+*.sh        text eol=lf
+*.command   text eol=lf
