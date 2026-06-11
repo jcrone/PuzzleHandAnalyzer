@@ -477,5 +477,46 @@ class TestMilestones(unittest.TestCase):
         self.assertNotIn("islands_merged", types)
 
 
+class TestAssemblyOnset(unittest.TestCase):
+
+    def test_clean_phase_boundary_high_confidence(self):
+        from puzzle_clusters import assembly_onset
+        secs = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0]
+        cnts = [0,    1,    1,    5,    20,   40]
+        t, conf, note = assembly_onset(secs, cnts)
+        self.assertEqual(t, 60.0)
+        self.assertEqual(conf, "high")
+
+    def test_gradual_ramp_is_medium(self):
+        from puzzle_clusters import assembly_onset
+        secs = [0.0, 20.0, 40.0, 60.0]
+        cnts = [4,   8,    14,   22]
+        t, conf, note = assembly_onset(secs, cnts)
+        self.assertEqual(t, 0.0)
+        self.assertEqual(conf, "medium")
+
+    def test_no_sustained_growth_unavailable(self):
+        from puzzle_clusters import assembly_onset
+        secs = [0.0, 20.0, 40.0, 60.0]
+        cnts = [0,   1,    0,    1]
+        t, conf, note = assembly_onset(secs, cnts)
+        self.assertIsNone(t)
+        self.assertEqual(conf, "unavailable")
+
+    def test_empty_history_unavailable(self):
+        from puzzle_clusters import assembly_onset
+        t, conf, note = assembly_onset([], [])
+        self.assertIsNone(t)
+        self.assertEqual(conf, "unavailable")
+
+
+class TestPlacementSplits(unittest.TestCase):
+    pass
+
+
+class TestDetectStalls(unittest.TestCase):
+    pass
+
+
 if __name__ == "__main__":
     unittest.main()

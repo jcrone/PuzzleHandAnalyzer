@@ -66,6 +66,40 @@ def dbscan_2d(points, eps, min_samples):
     return labels
 
 
+ASSEMBLY_MIN_COUNT = 3        # pieces in the main cluster to call it "assembling"
+ASSEMBLY_SUSTAIN = 2          # surveys of continued growth required
+
+
+def assembly_onset(history_seconds, history_counts,
+                   min_count=ASSEMBLY_MIN_COUNT, sustain=ASSEMBLY_SUSTAIN):
+    """Timestamp where the main assembly cluster begins SUSTAINED growth.
+
+    Returns (t, confidence, note). t is seconds, or None if no sustained
+    growth is found. confidence is 'high' (clean near-empty pre-phase then
+    growth), 'medium' (already growing at first survey, or gradual), or
+    'unavailable' (no onset). Pure function: operates only on the parallel
+    history arrays of the main cluster.
+    """
+    n = len(history_counts)
+    if n == 0:
+        return None, "unavailable", "no cluster history"
+    for i in range(n):
+        if history_counts[i] < min_count:
+            continue
+        end = min(n, i + sustain + 1)
+        window = history_counts[i:end]
+        grows = (len(window) >= 2 and window[-1] > window[0] and
+                 all(window[k + 1] >= window[k] for k in range(len(window) - 1)))
+        if not grows:
+            continue
+        pre_clean = all(c < min_count for c in history_counts[:i])
+        conf = "high" if (i > 0 and pre_clean) else "medium"
+        note = ("clean flip-phase boundary" if conf == "high"
+                else "assembly already underway at first survey")
+        return history_seconds[i], conf, note
+    return None, "unavailable", "no sustained growth detected"
+
+
 def bbox_iou(a, b):
     """Intersection-over-union of two (x1, y1, x2, y2) boxes."""
     ax1, ay1, ax2, ay2 = a
