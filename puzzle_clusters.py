@@ -119,6 +119,35 @@ def placement_splits(history_seconds, history_counts, num_pieces,
     return out
 
 
+STALL_MIN_GAP_S = 30.0
+
+
+def detect_stalls(history_seconds, history_counts, min_gap_s=STALL_MIN_GAP_S):
+    """Flat spots in the assembled-count curve: maximal spans during which
+    the count never exceeds its value at the span start, lasting longer than
+    min_gap_s. Returns a list of
+    {start_t, duration_s, count_at_stall} dicts."""
+    stalls = []
+    n = len(history_counts)
+    i = 0
+    while i < n - 1:
+        j = i
+        while j + 1 < n and history_counts[j + 1] <= history_counts[i]:
+            j += 1
+        if j > i:
+            gap = history_seconds[j] - history_seconds[i]
+            if gap >= min_gap_s:
+                stalls.append({
+                    "start_t": round(float(history_seconds[i]), 1),
+                    "duration_s": round(float(gap), 1),
+                    "count_at_stall": int(history_counts[i]),
+                })
+            i = j
+        else:
+            i += 1
+    return stalls
+
+
 def bbox_iou(a, b):
     """Intersection-over-union of two (x1, y1, x2, y2) boxes."""
     ax1, ay1, ax2, ay2 = a

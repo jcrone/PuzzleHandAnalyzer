@@ -537,7 +537,29 @@ class TestPlacementSplits(unittest.TestCase):
 
 
 class TestDetectStalls(unittest.TestCase):
-    pass
+
+    def test_finds_a_flat_spot(self):
+        from puzzle_clusters import detect_stalls
+        secs = [0.0, 20.0, 40.0, 80.0, 120.0, 140.0]
+        cnts = [0,   10,   30,   30,   30,    45]
+        stalls = detect_stalls(secs, cnts, min_gap_s=30.0)
+        self.assertEqual(len(stalls), 1)
+        self.assertEqual(stalls[0]["start_t"], 40.0)
+        self.assertEqual(stalls[0]["duration_s"], 80.0)
+        self.assertEqual(stalls[0]["count_at_stall"], 30)
+
+    def test_ignores_short_pauses(self):
+        from puzzle_clusters import detect_stalls
+        secs = [0.0, 20.0, 40.0, 60.0]
+        cnts = [0,   10,   10,   25]
+        stalls = detect_stalls(secs, cnts, min_gap_s=30.0)
+        self.assertEqual(stalls, [])
+
+    def test_steady_growth_has_no_stalls(self):
+        from puzzle_clusters import detect_stalls
+        secs = [0.0, 20.0, 40.0, 60.0]
+        cnts = [0,   10,   20,   30]
+        self.assertEqual(detect_stalls(secs, cnts, min_gap_s=30.0), [])
 
 
 if __name__ == "__main__":
