@@ -96,7 +96,7 @@ def assembly_onset(history_seconds, history_counts,
         conf = "high" if (i > 0 and pre_clean) else "medium"
         note = ("clean flip-phase boundary" if conf == "high"
                 else "assembly already underway at first survey")
-        return history_seconds[i], conf, note
+        return round(float(history_seconds[i]), 1), conf, note
     return None, "unavailable", "no sustained growth detected"
 
 
@@ -126,7 +126,11 @@ def detect_stalls(history_seconds, history_counts, min_gap_s=STALL_MIN_GAP_S):
     """Flat spots in the assembled-count curve: maximal spans during which
     the count never exceeds its value at the span start, lasting longer than
     min_gap_s. Returns a list of
-    {start_t, duration_s, count_at_stall} dicts."""
+    {start_t, duration_s, count_at_stall} dicts.
+
+    A span is measured relative to the count at its start, so a dip-and-recover
+    back to the start value still counts as a stall (count_at_stall is that
+    start value)."""
     stalls = []
     n = len(history_counts)
     i = 0

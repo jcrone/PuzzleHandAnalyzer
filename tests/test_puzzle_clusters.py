@@ -509,6 +509,15 @@ class TestAssemblyOnset(unittest.TestCase):
         self.assertIsNone(t)
         self.assertEqual(conf, "unavailable")
 
+    def test_dip_interrupts_sustain_window(self):
+        from puzzle_clusters import assembly_onset
+        # count hits 5 at t=40 but immediately drops, so not sustained there;
+        # real sustained growth starts at t=100
+        secs = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0]
+        cnts = [0,   1,    5,    2,    1,    6,     15,    30]
+        t, conf, note = assembly_onset(secs, cnts)
+        self.assertEqual(t, 100.0)
+
 
 class TestPlacementSplits(unittest.TestCase):
 
@@ -560,6 +569,17 @@ class TestDetectStalls(unittest.TestCase):
         secs = [0.0, 20.0, 40.0, 60.0]
         cnts = [0,   10,   20,   30]
         self.assertEqual(detect_stalls(secs, cnts, min_gap_s=30.0), [])
+
+    def test_back_to_back_stalls(self):
+        from puzzle_clusters import detect_stalls
+        secs = [0.0, 40.0, 80.0, 120.0, 160.0]
+        cnts = [10,  10,   20,   20,    30]
+        stalls = detect_stalls(secs, cnts, min_gap_s=30.0)
+        self.assertEqual(len(stalls), 2)
+        self.assertEqual(stalls[0]["start_t"], 0.0)
+        self.assertEqual(stalls[0]["count_at_stall"], 10)
+        self.assertEqual(stalls[1]["start_t"], 80.0)
+        self.assertEqual(stalls[1]["count_at_stall"], 20)
 
 
 if __name__ == "__main__":
