@@ -33,6 +33,7 @@ Requires: mediapipe>=0.10.21, opencv-python-headless, numpy, matplotlib
 import argparse
 import bisect
 import csv
+from datetime import datetime, timezone
 import json
 import os
 import sys
@@ -47,6 +48,7 @@ from mediapipe.tasks.python import vision as mp_vision
 import puzzle_clusters
 import puzzle_pieces
 import puzzle_report
+from puzzle_clusters import assembly_onset, placement_splits, detect_stalls
 
 HAND_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "hand_landmarker.task")
@@ -167,6 +169,111 @@ def _cluster_counts_at(clusters, t_now):
         if hist_c[idx] > largest:
             largest = hist_c[idx]
     return [int(largest), int(active)]
+
+
+def count_before(onset_times, boundary_t):
+    """How many grip onsets occurred before boundary_t. If boundary_t is
+    None (no flip phase detected) returns 0 — nothing is attributed to a
+    phase we couldn't bound."""
+    if boundary_t is None:
+        return 0
+    return sum(1 for t in onset_times if t < boundary_t)
+
+
+def pieces_per_min(final_count, total_s, onset_t, count_at_onset):
+    """Overall and assembly-phase placement rates.
+
+    overall: final_count over the whole session.
+    assembly: pieces added after onset, over the post-onset duration.
+    Falls back to overall when onset_t is None or degenerate.
+    """
+    total_min = max(total_s, 1e-6) / 60.0
+    overall = final_count / total_min
+    if onset_t is None or (total_s - onset_t) <= 1e-6:
+        assembly = overall
+    else:
+        asm_min = (total_s - onset_t) / 60.0
+        assembly = (final_count - count_at_onset) / asm_min
+    return {
+        "overall_pieces_per_min": round(float(overall), 2),
+        "assembly_pieces_per_min": round(float(assembly), 2),
+    }
+
+
+def competition_blocks(main_cluster, cluster_summary, onset_times,
+                       dur_s, num_pieces, both_idle_pct):
+    """Build the flip_phase / placement / efficiency metric blocks from the
+    main assembly cluster's growth history and the pooled grip-onset times
+    (seconds). Pure: no video, no globals. Returns a dict with keys
+    'flip_phase', 'efficiency', and (when a main cluster exists) 'placement'.
+    Degrades gracefully: with no main cluster, flip_phase is 'unavailable'
+    and placement is omitted."""
+    flip_phase = None
+    placement = None
+    stalls = []
+    if main_cluster is not None and main_cluster.get("history_counts"):
+        hs = main_cluster["history_seconds"]
+        hc = main_cluster["history_counts"]
+        onset_t, onset_conf, onset_note = assembly_onset(hs, hc)
+        if (onset_t is not None and cluster_summary and
+                cluster_summary.get("detection_quality") == "low"):
+            onset_conf, onset_note = "low", "cluster detection quality is low"
+        count_at_onset = 0
+        if onset_t is not None:
+            count_at_onset = next((c for t, c in zip(hs, hc) if t >= onset_t), 0)
+        manips = count_before(onset_times, onset_t)
+        flip_dur = onset_t if onset_t is not None else 0.0
+        flip_phase = {
+            "end_t": round(onset_t, 1) if onset_t is not None else None,
+            "duration_s": round(flip_dur, 1),
+            "confidence": onset_conf if onset_t is not None else "unavailable",
+            "note": onset_note,
+            "manipulations": manips,
+            "manipulations_per_min": (round(manips / flip_dur * 60, 1)
+                                      if flip_dur > 1e-6 else None),
+        }
+        final_count = main_cluster.get("final_count", hc[-1] if hc else 0)
+        placement = dict(pieces_per_min(final_count, dur_s, onset_t, count_at_onset))
+        placement["final_assembled"] = int(final_count)
+        if num_pieces:
+            placement["percent_complete"] = round(100.0 * final_count / num_pieces, 1)
+        placement["splits"] = placement_splits(hs, hc, num_pieces)
+        stalls = detect_stalls(hs, hc)
+    efficiency = {
+        "dead_time_pct": both_idle_pct,
+        "productive_pct": round(100.0 - both_idle_pct, 1),
+        "stall_count": len(stalls),
+        "longest_stall_s": (max(s["duration_s"] for s in stalls) if stalls else 0.0),
+        "stalls": stalls,
+    }
+    if flip_phase is None:
+        flip_phase = {"confidence": "unavailable",
+                      "note": "no assembly cluster detected"}
+    out = {"flip_phase": flip_phase, "efficiency": efficiency}
+    if placement is not None:
+        out["placement"] = placement
+    return out
+
+
+def phase_grip_pace(left_grip, right_grip, boundary_frame, eff_fps, N):
+    """Combined grip-cycle pace (grips/min) split into the prep (flip/sort)
+    window [0, boundary_frame) and the assembly window [boundary_frame, N).
+    Mirrors the whole-session 'combined' pace definition (sum of each hand's
+    grip onsets). When boundary_frame is None (no flip phase detected), prep
+    is None and assembly falls back to the whole-session pace."""
+    def combined_cycles(a, b):
+        return len(onsets(left_grip[a:b])) + len(onsets(right_grip[a:b]))
+    if boundary_frame is None:
+        secs = max(N / eff_fps, 1e-6)
+        return {"prep_grips_per_min": None,
+                "assembly_grips_per_min": round(combined_cycles(0, N) / secs * 60, 1)}
+    bf = min(N, max(0, int(boundary_frame)))
+    prep_secs = max(bf / eff_fps, 1e-6)
+    asm_secs = max((N - bf) / eff_fps, 1e-6)
+    return {
+        "prep_grips_per_min": round(combined_cycles(0, bf) / prep_secs * 60, 1),
+        "assembly_grips_per_min": round(combined_cycles(bf, N) / asm_secs * 60, 1),
+    }
 
 
 # ----------------------------------------------------------------- analysis
@@ -602,6 +709,23 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         summary["cluster_summary"] = cluster_summary
         summary["clusters"] = _serialize_clusters(cluster_history)
         summary["milestones"] = milestones
+
+    # ---- competition metrics: flip phase, placement rate, efficiency ----
+    main_cluster = (next((c for c in cluster_history if c.get("is_main")), None)
+                    if cluster_history else None)
+    onset_times = sorted(
+        list(onsets(series["left"]["gripping"]) / eff_fps) +
+        list(onsets(series["right"]["gripping"]) / eff_fps))
+    summary.update(competition_blocks(
+        main_cluster, cluster_summary, onset_times, dur_s, num_pieces,
+        summary["bimanual"]["both_idle_pct"]))
+    # grip-based pace split by prep (flip/sort) vs assembly phase
+    asm_t = summary.get("flip_phase", {}).get("end_t")
+    bframe = int(round(asm_t * eff_fps)) if asm_t is not None else None
+    summary["pace"].update(phase_grip_pace(
+        series["left"]["gripping"], series["right"]["gripping"],
+        bframe, eff_fps, N))
+    summary["created"] = datetime.now(timezone.utc).isoformat()
 
     # ---- write data --------------------------------------------------------
     base = os.path.join(outdir, name)

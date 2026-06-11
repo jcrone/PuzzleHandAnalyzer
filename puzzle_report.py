@@ -264,6 +264,42 @@ def make_heatmaps(cols, windows, bg, manual_board, out_path):
     plt.close(fig)
 
 
+def _competition_lines(summary):
+    """Formatted one-pager lines for the competition-metric blocks. Returns
+    a (possibly empty) list of strings; tolerates summaries lacking the
+    blocks (older runs)."""
+    lines = []
+    pl = summary.get("placement")
+    fp = summary.get("flip_phase") or {}
+    ef = summary.get("efficiency") or {}
+    if pl:
+        line = ("Placing pace:  %.2f pieces/min overall   %.2f pieces/min assembly"
+                % (pl.get("overall_pieces_per_min", 0),
+                   pl.get("assembly_pieces_per_min", 0)))
+        if "percent_complete" in pl:
+            line += "   %.0f%% complete" % pl["percent_complete"]
+        lines.append(line)
+        sp = pl.get("splits") or {}
+        if sp:
+            def _s(v):
+                return "-" if v is None else "%.0fs" % v
+            lines.append("Splits:  25%% %s   50%% %s   75%% %s   100%% %s" % (
+                _s(sp.get("25pct")), _s(sp.get("50pct")),
+                _s(sp.get("75pct")), _s(sp.get("100pct"))))
+    if fp:
+        if fp.get("confidence") == "unavailable":
+            lines.append("Flip/prep phase: not detected (%s)" % fp.get("note", ""))
+        else:
+            lines.append("Flip/prep: %.0fs   %d manipulations (flipping/sorting)   confidence %s"
+                         % (fp.get("duration_s", 0), fp.get("manipulations", 0),
+                            fp.get("confidence", "?")))
+    if ef:
+        lines.append("Productive %.0f%%   Dead time %.0f%%   Stalls: %d (longest %.0fs)"
+                     % (ef.get("productive_pct", 0), ef.get("dead_time_pct", 0),
+                        ef.get("stall_count", 0), ef.get("longest_stall_s", 0)))
+    return lines
+
+
 # ----------------------------------------------------------------- one pager
 def make_one_pager(summary, windows, sa, base):
     fig = plt.figure(figsize=(8.5, 11))
@@ -507,6 +543,25 @@ def make_one_pager(summary, windows, sa, base):
                  weight="bold", loc="left")
     for sp in ("top", "right", "left"):
         ax.spines[sp].set_visible(False)
+
+    # ---- competition metrics (renders in the whitespace band between the
+    # top and bottom gridspecs; degrades to nothing for older runs)
+    comp = _competition_lines(summary)
+    cax = fig.add_axes([0.07, 0.462, 0.88, 0.085])
+    cax.axis("off")
+    cax.add_patch(Rectangle((0.0, 0.0), 1.0, 1.0, transform=cax.transAxes,
+                            facecolor="#f4f5fa", edgecolor="#c9cde0"))
+    cax.text(0.015, 0.92, "Competition metrics", transform=cax.transAxes,
+             fontsize=11, weight="bold", va="top", color="#333333")
+    if comp:
+        cax.text(0.015, 0.60,
+                 "\n".join(comp), transform=cax.transAxes,
+                 fontsize=7.5, va="top", color="#444444",
+                 linespacing=1.18)
+    else:
+        cax.text(0.015, 0.60, "n/a (older analysis - rerun to populate)",
+                 transform=cax.transAxes, fontsize=7.5, va="top",
+                 color="#888888", style="italic")
 
     # ---- note
     ax = fig.add_subplot(gs[6])

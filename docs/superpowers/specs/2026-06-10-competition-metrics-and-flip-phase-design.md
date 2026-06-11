@@ -69,17 +69,25 @@ When `assembly_start_t` is available, emit a top-level `flip_phase` block:
   `assembly_start_t`. Labelled **"manipulations (flipping/sorting)"** in all
   output — NOT "flips." The landmark data cannot prove a given contact was a
   flip vs. a sort-grip, so the honest label is mandatory.
-- `manipulations_per_min`, plus the bimanual split during the phase
-  (`both_active_pct`, `parallel_active_pct`).
+- `manipulations_per_min`. (A phase-scoped bimanual split was *deferred* from
+  Plan 1; the session-level bimanual numbers remain in `summary["bimanual"]`.)
 
 **Effect on existing metrics:** the whole-session `pace` / grip metrics are
-left unchanged (nothing breaks). New **assembly-phase variants** of the key
-pace metrics are added, computed over `assembly_start_t → end`, so the "real
-placing" pace is not diluted by the flipping warm-up. These feed Feature 1.
+left unchanged (nothing breaks). The **placement rate is split** into an
+overall (whole-session) and an assembly-phase variant
+(`overall_pieces_per_min` / `assembly_pieces_per_min`, the latter computed
+over `assembly_start_t → end`), so the real *placing* pace is not diluted by
+the flipping warm-up. This split is part of Feature 1. The **combined grip
+pace** is also split by phase (`pace.prep_grips_per_min` /
+`pace.assembly_grips_per_min`, boundary at `flip_phase.end_t`) for the
+grip-tempo view; these live in the JSON and are consumed by the
+analyst/trends tooling (not surfaced on the one-pager, whose competition
+panel is at its 4-line layout limit). Per-hand pace remains whole-session
+only.
 
 When `assembly_start_t` is `None`, `flip_phase` is reported as not detected
-(with the note) and assembly-phase variants fall back to whole-session
-values.
+(with the note) and `assembly_pieces_per_min` falls back to the overall
+value.
 
 ---
 

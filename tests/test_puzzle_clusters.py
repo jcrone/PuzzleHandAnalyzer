@@ -477,5 +477,110 @@ class TestMilestones(unittest.TestCase):
         self.assertNotIn("islands_merged", types)
 
 
+class TestAssemblyOnset(unittest.TestCase):
+
+    def test_clean_phase_boundary_high_confidence(self):
+        from puzzle_clusters import assembly_onset
+        secs = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0]
+        cnts = [0,    1,    1,    5,    20,   40]
+        t, conf, note = assembly_onset(secs, cnts)
+        self.assertEqual(t, 60.0)
+        self.assertEqual(conf, "high")
+
+    def test_gradual_ramp_is_medium(self):
+        from puzzle_clusters import assembly_onset
+        secs = [0.0, 20.0, 40.0, 60.0]
+        cnts = [4,   8,    14,   22]
+        t, conf, note = assembly_onset(secs, cnts)
+        self.assertEqual(t, 0.0)
+        self.assertEqual(conf, "medium")
+
+    def test_no_sustained_growth_unavailable(self):
+        from puzzle_clusters import assembly_onset
+        secs = [0.0, 20.0, 40.0, 60.0]
+        cnts = [0,   1,    0,    1]
+        t, conf, note = assembly_onset(secs, cnts)
+        self.assertIsNone(t)
+        self.assertEqual(conf, "unavailable")
+
+    def test_empty_history_unavailable(self):
+        from puzzle_clusters import assembly_onset
+        t, conf, note = assembly_onset([], [])
+        self.assertIsNone(t)
+        self.assertEqual(conf, "unavailable")
+
+    def test_dip_interrupts_sustain_window(self):
+        from puzzle_clusters import assembly_onset
+        # count hits 5 at t=40 but immediately drops, so not sustained there;
+        # real sustained growth starts at t=100
+        secs = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0]
+        cnts = [0,   1,    5,    2,    1,    6,     15,    30]
+        t, conf, note = assembly_onset(secs, cnts)
+        self.assertEqual(t, 100.0)
+
+
+class TestPlacementSplits(unittest.TestCase):
+
+    def test_quartile_splits(self):
+        from puzzle_clusters import placement_splits
+        secs = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0]
+        cnts = [0,   10,   25,   50,   75,   100]
+        out = placement_splits(secs, cnts, num_pieces=100)
+        self.assertEqual(out["25pct"], 40.0)
+        self.assertEqual(out["50pct"], 60.0)
+        self.assertEqual(out["75pct"], 80.0)
+        self.assertEqual(out["100pct"], 100.0)
+
+    def test_unreached_split_is_none(self):
+        from puzzle_clusters import placement_splits
+        secs = [0.0, 20.0, 40.0]
+        cnts = [0,   10,   30]
+        out = placement_splits(secs, cnts, num_pieces=100)
+        self.assertEqual(out["25pct"], 40.0)
+        self.assertIsNone(out["50pct"])
+
+    def test_no_num_pieces_returns_empty(self):
+        from puzzle_clusters import placement_splits
+        out = placement_splits([0.0, 10.0], [0, 5], num_pieces=None)
+        self.assertEqual(out, {})
+
+
+class TestDetectStalls(unittest.TestCase):
+
+    def test_finds_a_flat_spot(self):
+        from puzzle_clusters import detect_stalls
+        secs = [0.0, 20.0, 40.0, 80.0, 120.0, 140.0]
+        cnts = [0,   10,   30,   30,   30,    45]
+        stalls = detect_stalls(secs, cnts, min_gap_s=30.0)
+        self.assertEqual(len(stalls), 1)
+        self.assertEqual(stalls[0]["start_t"], 40.0)
+        self.assertEqual(stalls[0]["duration_s"], 80.0)
+        self.assertEqual(stalls[0]["count_at_stall"], 30)
+
+    def test_ignores_short_pauses(self):
+        from puzzle_clusters import detect_stalls
+        secs = [0.0, 20.0, 40.0, 60.0]
+        cnts = [0,   10,   10,   25]
+        stalls = detect_stalls(secs, cnts, min_gap_s=30.0)
+        self.assertEqual(stalls, [])
+
+    def test_steady_growth_has_no_stalls(self):
+        from puzzle_clusters import detect_stalls
+        secs = [0.0, 20.0, 40.0, 60.0]
+        cnts = [0,   10,   20,   30]
+        self.assertEqual(detect_stalls(secs, cnts, min_gap_s=30.0), [])
+
+    def test_back_to_back_stalls(self):
+        from puzzle_clusters import detect_stalls
+        secs = [0.0, 40.0, 80.0, 120.0, 160.0]
+        cnts = [10,  10,   20,   20,    30]
+        stalls = detect_stalls(secs, cnts, min_gap_s=30.0)
+        self.assertEqual(len(stalls), 2)
+        self.assertEqual(stalls[0]["start_t"], 0.0)
+        self.assertEqual(stalls[0]["count_at_stall"], 10)
+        self.assertEqual(stalls[1]["start_t"], 80.0)
+        self.assertEqual(stalls[1]["count_at_stall"], 20)
+
+
 if __name__ == "__main__":
     unittest.main()

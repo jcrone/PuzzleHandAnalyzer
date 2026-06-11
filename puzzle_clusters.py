@@ -66,6 +66,92 @@ def dbscan_2d(points, eps, min_samples):
     return labels
 
 
+ASSEMBLY_MIN_COUNT = 3        # pieces in the main cluster to call it "assembling"
+ASSEMBLY_SUSTAIN = 2          # surveys of continued growth required
+
+
+def assembly_onset(history_seconds, history_counts,
+                   min_count=ASSEMBLY_MIN_COUNT, sustain=ASSEMBLY_SUSTAIN):
+    """Timestamp where the main assembly cluster begins SUSTAINED growth.
+
+    Returns (t, confidence, note). t is seconds, or None if no sustained
+    growth is found. confidence is 'high' (clean near-empty pre-phase then
+    growth), 'medium' (already growing at first survey, or gradual), or
+    'unavailable' (no onset). Pure function: operates only on the parallel
+    history arrays of the main cluster.
+    """
+    n = len(history_counts)
+    if n == 0:
+        return None, "unavailable", "no cluster history"
+    for i in range(n):
+        if history_counts[i] < min_count:
+            continue
+        end = min(n, i + sustain + 1)
+        window = history_counts[i:end]
+        grows = (len(window) >= 2 and window[-1] > window[0] and
+                 all(window[k + 1] >= window[k] for k in range(len(window) - 1)))
+        if not grows:
+            continue
+        pre_clean = all(c < min_count for c in history_counts[:i])
+        conf = "high" if (i > 0 and pre_clean) else "medium"
+        note = ("clean flip-phase boundary" if conf == "high"
+                else "assembly already underway at first survey")
+        return round(float(history_seconds[i]), 1), conf, note
+    return None, "unavailable", "no sustained growth detected"
+
+
+def placement_splits(history_seconds, history_counts, num_pieces,
+                     fractions=(0.25, 0.50, 0.75, 1.0)):
+    """First timestamp the assembled count reaches each fraction of
+    num_pieces. Returns {'25pct': t_or_None, ...}, or {} if num_pieces is
+    falsy."""
+    if not num_pieces:
+        return {}
+    out = {}
+    for fr in fractions:
+        target = fr * num_pieces
+        hit = None
+        for ts, c in zip(history_seconds, history_counts):
+            if c >= target:
+                hit = round(float(ts), 1)
+                break
+        out["%dpct" % int(round(fr * 100))] = hit
+    return out
+
+
+STALL_MIN_GAP_S = 30.0
+
+
+def detect_stalls(history_seconds, history_counts, min_gap_s=STALL_MIN_GAP_S):
+    """Flat spots in the assembled-count curve: maximal spans during which
+    the count never exceeds its value at the span start, lasting longer than
+    min_gap_s. Returns a list of
+    {start_t, duration_s, count_at_stall} dicts.
+
+    A span is measured relative to the count at its start, so a dip-and-recover
+    back to the start value still counts as a stall (count_at_stall is that
+    start value)."""
+    stalls = []
+    n = len(history_counts)
+    i = 0
+    while i < n - 1:
+        j = i
+        while j + 1 < n and history_counts[j + 1] <= history_counts[i]:
+            j += 1
+        if j > i:
+            gap = history_seconds[j] - history_seconds[i]
+            if gap >= min_gap_s:
+                stalls.append({
+                    "start_t": round(float(history_seconds[i]), 1),
+                    "duration_s": round(float(gap), 1),
+                    "count_at_stall": int(history_counts[i]),
+                })
+            i = j
+        else:
+            i += 1
+    return stalls
+
+
 def bbox_iou(a, b):
     """Intersection-over-union of two (x1, y1, x2, y2) boxes."""
     ax1, ay1, ax2, ay2 = a
