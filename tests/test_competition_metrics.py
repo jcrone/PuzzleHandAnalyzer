@@ -70,3 +70,27 @@ class TestCompetitionBlocks(unittest.TestCase):
                                  [1.0], dur_s=1200.0, num_pieces=100,
                                  both_idle_pct=30.0)
         self.assertEqual(out["flip_phase"]["confidence"], "low")
+
+    def test_stall_surfaces_into_efficiency(self):
+        from puzzle_hands import competition_blocks
+        cluster = {
+            "is_main": True,
+            # grows to 30 by t=60, then flat 60s->130s (70s stall), then resumes
+            "history_seconds": [0.0, 60.0, 130.0, 160.0],
+            "history_counts":  [0,   30,   30,    50],
+            "final_count": 50,
+        }
+        out = competition_blocks(cluster, {"detection_quality": "high"},
+                                 [1.0], dur_s=200.0, num_pieces=100,
+                                 both_idle_pct=20.0)
+        self.assertEqual(out["efficiency"]["stall_count"], 1)
+        self.assertEqual(out["efficiency"]["longest_stall_s"], 70.0)
+        self.assertEqual(len(out["efficiency"]["stalls"]), 1)
+
+    def test_num_pieces_none_omits_percent_and_splits(self):
+        from puzzle_hands import competition_blocks
+        out = competition_blocks(self._main_cluster(), {"detection_quality": "high"},
+                                 [1.0], dur_s=1200.0, num_pieces=None,
+                                 both_idle_pct=25.0)
+        self.assertNotIn("percent_complete", out["placement"])
+        self.assertEqual(out["placement"]["splits"], {})

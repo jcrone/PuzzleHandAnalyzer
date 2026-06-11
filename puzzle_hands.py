@@ -33,6 +33,7 @@ Requires: mediapipe>=0.10.21, opencv-python-headless, numpy, matplotlib
 import argparse
 import bisect
 import csv
+from datetime import datetime, timezone
 import json
 import os
 import sys
@@ -214,7 +215,8 @@ def competition_blocks(main_cluster, cluster_summary, onset_times,
         hs = main_cluster["history_seconds"]
         hc = main_cluster["history_counts"]
         onset_t, onset_conf, onset_note = assembly_onset(hs, hc)
-        if cluster_summary and cluster_summary.get("detection_quality") == "low":
+        if (onset_t is not None and cluster_summary and
+                cluster_summary.get("detection_quality") == "low"):
             onset_conf, onset_note = "low", "cluster detection quality is low"
         count_at_onset = 0
         if onset_t is not None:
@@ -688,7 +690,6 @@ def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
         summary["milestones"] = milestones
 
     # ---- competition metrics: flip phase, placement rate, efficiency ----
-    from datetime import datetime, timezone
     main_cluster = (next((c for c in cluster_history if c.get("is_main")), None)
                     if cluster_history else None)
     onset_times = sorted(
