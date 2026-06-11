@@ -11,7 +11,7 @@ class TestCountBefore(unittest.TestCase):
         onset_times = [2.0, 5.0, 9.0, 30.0, 61.0, 90.0]
         self.assertEqual(count_before(onset_times, 60.0), 4)
 
-    def test_none_boundary_counts_all(self):
+    def test_none_boundary_counts_zero(self):
         onset_times = [2.0, 5.0, 9.0]
         self.assertEqual(count_before(onset_times, None), 0)
 
