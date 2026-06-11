@@ -547,20 +547,20 @@ def make_one_pager(summary, windows, sa, base):
     # ---- competition metrics (renders in the whitespace band between the
     # top and bottom gridspecs; degrades to nothing for older runs)
     comp = _competition_lines(summary)
-    cax = fig.add_axes([0.07, 0.475, 0.88, 0.065])
+    cax = fig.add_axes([0.07, 0.462, 0.88, 0.085])
     cax.axis("off")
     cax.add_patch(Rectangle((0.0, 0.0), 1.0, 1.0, transform=cax.transAxes,
                             facecolor="#f4f5fa", edgecolor="#c9cde0"))
-    cax.text(0.015, 0.86, "Competition metrics", transform=cax.transAxes,
+    cax.text(0.015, 0.92, "Competition metrics", transform=cax.transAxes,
              fontsize=11, weight="bold", va="top", color="#333333")
     if comp:
-        cax.text(0.015, 0.58,
+        cax.text(0.015, 0.60,
                  "\n".join(comp), transform=cax.transAxes,
-                 fontsize=9, va="top", color="#444444",
-                 linespacing=1.45)
+                 fontsize=7.5, va="top", color="#444444",
+                 linespacing=1.18)
     else:
-        cax.text(0.015, 0.58, "n/a (older analysis - rerun to populate)",
-                 transform=cax.transAxes, fontsize=9, va="top",
+        cax.text(0.015, 0.60, "n/a (older analysis - rerun to populate)",
+                 transform=cax.transAxes, fontsize=7.5, va="top",
                  color="#888888", style="italic")
 
     # ---- note
