@@ -511,7 +511,29 @@ class TestAssemblyOnset(unittest.TestCase):
 
 
 class TestPlacementSplits(unittest.TestCase):
-    pass
+
+    def test_quartile_splits(self):
+        from puzzle_clusters import placement_splits
+        secs = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0]
+        cnts = [0,   10,   25,   50,   75,   100]
+        out = placement_splits(secs, cnts, num_pieces=100)
+        self.assertEqual(out["25pct"], 40.0)
+        self.assertEqual(out["50pct"], 60.0)
+        self.assertEqual(out["75pct"], 80.0)
+        self.assertEqual(out["100pct"], 100.0)
+
+    def test_unreached_split_is_none(self):
+        from puzzle_clusters import placement_splits
+        secs = [0.0, 20.0, 40.0]
+        cnts = [0,   10,   30]
+        out = placement_splits(secs, cnts, num_pieces=100)
+        self.assertEqual(out["25pct"], 40.0)
+        self.assertIsNone(out["50pct"])
+
+    def test_no_num_pieces_returns_empty(self):
+        from puzzle_clusters import placement_splits
+        out = placement_splits([0.0, 10.0], [0, 5], num_pieces=None)
+        self.assertEqual(out, {})
 
 
 class TestDetectStalls(unittest.TestCase):

@@ -100,6 +100,25 @@ def assembly_onset(history_seconds, history_counts,
     return None, "unavailable", "no sustained growth detected"
 
 
+def placement_splits(history_seconds, history_counts, num_pieces,
+                     fractions=(0.25, 0.50, 0.75, 1.0)):
+    """First timestamp the assembled count reaches each fraction of
+    num_pieces. Returns {'25pct': t_or_None, ...}, or {} if num_pieces is
+    falsy."""
+    if not num_pieces:
+        return {}
+    out = {}
+    for fr in fractions:
+        target = fr * num_pieces
+        hit = None
+        for ts, c in zip(history_seconds, history_counts):
+            if c >= target:
+                hit = round(float(ts), 1)
+                break
+        out["%dpct" % int(round(fr * 100))] = hit
+    return out
+
+
 def bbox_iou(a, b):
     """Intersection-over-union of two (x1, y1, x2, y2) boxes."""
     ax1, ay1, ax2, ay2 = a
