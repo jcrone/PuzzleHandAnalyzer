@@ -169,6 +169,35 @@ def _cluster_counts_at(clusters, t_now):
     return [int(largest), int(active)]
 
 
+def count_before(onset_times, boundary_t):
+    """How many grip onsets occurred before boundary_t. If boundary_t is
+    None (no flip phase detected) returns 0 — nothing is attributed to a
+    phase we couldn't bound."""
+    if boundary_t is None:
+        return 0
+    return sum(1 for t in onset_times if t < boundary_t)
+
+
+def pieces_per_min(final_count, total_s, onset_t, count_at_onset):
+    """Overall and assembly-phase placement rates.
+
+    overall: final_count over the whole session.
+    assembly: pieces added after onset, over the post-onset duration.
+    Falls back to overall when onset_t is None or degenerate.
+    """
+    total_min = max(total_s, 1e-6) / 60.0
+    overall = final_count / total_min
+    if onset_t is None or (total_s - onset_t) <= 1e-6:
+        assembly = overall
+    else:
+        asm_min = (total_s - onset_t) / 60.0
+        assembly = (final_count - count_at_onset) / asm_min
+    return {
+        "overall_pieces_per_min": round(float(overall), 2),
+        "assembly_pieces_per_min": round(float(assembly), 2),
+    }
+
+
 # ----------------------------------------------------------------- analysis
 def analyze(video, start, duration, proc_fps, move_thresh, finger_thresh,
             grip_thresh, board, seg_seconds, preview_seconds, swap,
